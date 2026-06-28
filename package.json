@@ -7,6 +7,8 @@
   "type": "module",
   "scripts": {
     "dev": "turbo run dev",
+    "dev:device": "turbo run dev -- --device",
+    "prebuild": "bun run --cwd apps/mobile prebuild",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
     "check": "ultracite check",
