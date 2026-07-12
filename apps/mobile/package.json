@@ -8,8 +8,9 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean --platform ios",
     "prebuild:android": "expo prebuild --clean --platform android",
-    "build:development": "eas build --profile development",
+    "build:dev": "eas build --profile development --platform ios",
     "build": "eas build --platform ios",
+    "submit": "eas submit --platform ios",
     "lint": "expo lint"
   },
   "dependencies": {

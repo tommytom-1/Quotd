@@ -10,6 +10,7 @@
     "dev:device": "turbo run dev -- --device",
     "prebuild": "bun run --cwd apps/mobile prebuild",
     "build": "turbo run build",
+    "submit": "turbo run submit",
     "build:dev": "turbo run build:dev",
     "check": "ultracite check",
     "fix": "ultracite fix",

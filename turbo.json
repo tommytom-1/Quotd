@@ -10,6 +10,10 @@
       "cache": false,
       "persistent": true
     },
+    "submit": {
+      "cache": false,
+      "persistent": true
+    },
     "build:dev": {
       "cache": false,
       "persistent": true
