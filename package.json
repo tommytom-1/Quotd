@@ -11,9 +11,11 @@
     "prebuild": "bun run --cwd apps/mobile prebuild",
     "build": "turbo run build",
     "submit": "turbo run submit",
+    "check:types": "turbo run check:types",
     "build:dev": "turbo run build:dev",
     "check": "ultracite check",
     "fix": "ultracite fix",
+    "test": "bun test apps/mobile/tests",
     "login": "eas login"
   },
   "dependencies": {},
