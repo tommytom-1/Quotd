@@ -29,12 +29,7 @@
   },
   "languages": {
     "JavaScript": {
-      "language_servers": [
-        "!tsgo",
-        "!biome",
-        "!eslint",
-        "vtsls"
-      ],
+      "language_servers": ["!tsgo", "!biome", "!eslint", "vtsls"],
       "code_actions_on_format": {
         "source.fixAll.oxc": true,
         "source.organizeImports.oxc": true
@@ -46,12 +41,7 @@
       }
     },
     "TSX": {
-      "language_servers": [
-        "!tsgo",
-        "!biome",
-        "!eslint",
-        "vtsls"
-      ],
+      "language_servers": ["!tsgo", "!biome", "!eslint", "vtsls"],
       "code_actions_on_format": {
         "source.fixAll.oxc": true,
         "source.organizeImports.oxc": true
@@ -63,12 +53,7 @@
       }
     },
     "TypeScript": {
-      "language_servers": [
-        "!tsgo",
-        "!biome",
-        "!eslint",
-        "vtsls"
-      ],
+      "language_servers": ["!tsgo", "!biome", "!eslint", "vtsls"],
       "code_actions_on_format": {
         "source.fixAll.oxc": true,
         "source.organizeImports.oxc": true
