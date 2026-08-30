@@ -35,6 +35,7 @@ export function formatMonthLabel(timestamp: number) {
   return monthFormatter.format(new Date(timestamp));
 }
 
+// oxlint-disable unicorn/no-array-sort -- Hermes does not provide toSorted.
 export function sortNewest(quotes: QuoteRecord[]) {
   return [...quotes].sort(
     (first, second) => second.createdAt - first.createdAt
@@ -80,6 +81,7 @@ export function rankSpeakers(quotes: QuoteRecord[]) {
     .map(([name]) => name)
     .slice(0, 8);
 }
+// oxlint-enable unicorn/no-array-sort
 
 export interface QuoteSection {
   title: string;

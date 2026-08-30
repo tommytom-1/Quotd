@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { buildQuoteMosaic } from "../src/lib/quote-grid.ts";
 import {
   getUniqueSpeakers,
   rankSpeakers,
@@ -12,6 +13,31 @@ const quotes = [
   { createdAt: 30, id: "newest", speaker: "Ada", text: "Third" },
 ];
 
+describe("quote mosaic", () => {
+  test("keeps the first quote as a full-size hero and packs every quote once", () => {
+    const records = Array.from({ length: 75 }, (_, index) => ({
+      createdAt: 100 - index,
+      id: `quote-${index}`,
+      imageUri: null,
+      speaker: "Speaker",
+      text: `Quote ${index}`,
+    }));
+
+    const first = buildQuoteMosaic(records);
+    const second = buildQuoteMosaic(records);
+    const packedIds = first.flatMap((block) =>
+      block.quotes.map((quote) => quote.id)
+    );
+
+    expect(first[0].kind).toBe("hero");
+    expect(first[0].quotes[0].id).toBe("quote-0");
+    expect(packedIds).toEqual(records.map((quote) => quote.id));
+    expect(new Set(packedIds).size).toBe(records.length);
+    expect(second).toEqual(first);
+  });
+});
+
+// oxlint-disable eslint/no-extend-native -- This test simulates an older Hermes runtime.
 describe("Hermes-compatible quote sorting", () => {
   test("does not require Array.prototype.toSorted", () => {
     const descriptor = Object.getOwnPropertyDescriptor(
@@ -51,3 +77,4 @@ describe("Hermes-compatible quote sorting", () => {
     ]);
   });
 });
+// oxlint-enable eslint/no-extend-native

@@ -14,9 +14,17 @@ export interface LocalProfile {
   avatarUri: string | null;
 }
 
+export interface SpeakerProfile {
+  id: string;
+  name: string;
+  avatarUri: string | null;
+  color: string;
+}
+
 export interface PersistedAppState {
   version: 1;
   quotes: QuoteRecord[];
+  speakers: SpeakerProfile[];
   profile: LocalProfile;
   themePreference: ThemePreference;
 }

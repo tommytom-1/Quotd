@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
   },
   continueText: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   counter: {
     fontSize: 11,
@@ -174,9 +174,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 33,
-    fontWeight: "800",
+    fontSize: 26,
+    fontWeight: "600",
     letterSpacing: -1,
+    lineHeight: 32,
     marginBottom: 24,
   },
 });

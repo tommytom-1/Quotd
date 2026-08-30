@@ -1,6 +1,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 
+import { normalizeSpeakerProfiles } from "@/lib/speaker-utils";
 import type {
   PersistedAppState,
   QuoteRecord,
@@ -17,6 +18,7 @@ export function createInitialState(): PersistedAppState {
   return {
     version: 1,
     quotes: [],
+    speakers: [],
     profile: {
       displayName: "",
       avatarUri: null,
@@ -94,6 +96,11 @@ function normalizeState(value: unknown): PersistedAppState {
   return {
     version: 1,
     quotes,
+    speakers: normalizeSpeakerProfiles(
+      candidate.speakers,
+      quotes,
+      resolveImageUri
+    ),
     profile: {
       displayName,
       avatarUri: resolveImageUri(storedAvatar),
@@ -144,6 +151,10 @@ function serializeState(state: PersistedAppState): PersistedAppState {
     quotes: state.quotes.map((quote) => ({
       ...quote,
       imageUri: makePortableUri(quote.imageUri),
+    })),
+    speakers: state.speakers.map((speaker) => ({
+      ...speaker,
+      avatarUri: makePortableUri(speaker.avatarUri),
     })),
     profile: {
       ...state.profile,
@@ -221,6 +232,8 @@ export async function persistImage(
     console.warn("[quotd-image-optimize]", error);
   }
 
+  // A reset may have removed these directories while optimization was pending.
+  ensureStorageDirectories();
   const destination = new File(IMAGE_DIRECTORY, `${kind}-${id}${extension}`);
   if (destination.exists) {
     destination.delete();
@@ -229,6 +242,9 @@ export async function persistImage(
   try {
     await new File(copySourceUri).copy(destination);
     return destination.uri;
+  } catch (error) {
+    deletePersistedImage(destination.uri);
+    throw error;
   } finally {
     if (optimizedFile?.exists) {
       optimizedFile.delete();

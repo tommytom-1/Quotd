@@ -1,119 +1,80 @@
-import { LinearGradient } from "expo-linear-gradient";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRef } from "react";
+import { Pressable, StyleSheet } from "react-native";
+import type { StyleProp, View, ViewStyle } from "react-native";
 
-import { useApp } from "@/context/app-context";
-import { formatDate, gradientForId } from "@/lib/quote-utils";
+import { QuoteArtwork } from "@/components/quote-artwork";
+import type { QuoteArtworkVariant } from "@/lib/quote-grid";
+import { QUOTE_RADII } from "@/lib/quote-style";
+import type { ArtworkSize } from "@/lib/quote-transition";
+import { formatDate } from "@/lib/quote-utils";
 import type { QuoteRecord } from "@/lib/types";
 
-export function QuoteCard({
-  quote,
-  onPress,
-}: {
+export interface QuoteCardFrame {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+  imageSize?: ArtworkSize;
+}
+
+interface QuoteCardProps {
+  onPress: (frame: QuoteCardFrame) => void;
   quote: QuoteRecord;
-  onPress: () => void;
-}) {
-  const { palette } = useApp();
-  const gradient = gradientForId(quote.id);
+  style?: StyleProp<ViewStyle>;
+  variant: Exclude<QuoteArtworkVariant, "detail">;
+}
+
+export function QuoteCard({ quote, onPress, style, variant }: QuoteCardProps) {
+  const cardRef = useRef<View>(null);
+  const imageSize = useRef<ArtworkSize | null>(null);
+  const borderRadius = QUOTE_RADII[variant];
+
+  const open = () => {
+    cardRef.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        onPress({
+          height,
+          width,
+          x,
+          y,
+          imageSize: imageSize.current ?? undefined,
+        });
+      }
+    });
+  };
 
   return (
     <Pressable
+      ref={cardRef}
       accessibilityLabel={`“${quote.text}”, by ${quote.speaker}, ${formatDate(quote.createdAt)}`}
       accessibilityRole="button"
-      onPress={onPress}
+      onPress={open}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: palette.surface },
+        { borderCurve: "continuous", borderRadius },
+        style,
         pressed && styles.pressed,
       ]}
     >
-      <View style={styles.thumbnail}>
-        {quote.imageUri ? (
-          <Image source={{ uri: quote.imageUri }} style={styles.image} />
-        ) : (
-          <LinearGradient
-            colors={gradient}
-            end={{ x: 1, y: 1 }}
-            start={{ x: 0, y: 0 }}
-            style={styles.image}
-          />
-        )}
-      </View>
-
-      <View style={styles.content}>
-        <Text numberOfLines={2} style={[styles.quote, { color: palette.text }]}>
-          “{quote.text}”
-        </Text>
-        <View style={styles.pillRow}>
-          <View
-            style={[styles.pill, { backgroundColor: palette.surfaceMuted }]}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.pillText, { color: palette.textSecondary }]}
-            >
-              {quote.speaker}
-            </Text>
-          </View>
-          <View
-            style={[styles.pill, { backgroundColor: palette.surfaceMuted }]}
-          >
-            <Text style={[styles.pillText, { color: palette.textMuted }]}>
-              {formatDate(quote.createdAt)}
-            </Text>
-          </View>
-        </View>
-      </View>
+      <QuoteArtwork
+        borderRadius={borderRadius}
+        onImageLoad={(size) => {
+          imageSize.current = size;
+        }}
+        quote={quote}
+        showMetadata={false}
+        style={StyleSheet.absoluteFill}
+        variant={variant}
+      />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    alignItems: "center",
-    borderRadius: 25,
-    flexDirection: "row",
-    gap: 15,
-    minHeight: 104,
-    padding: 15,
-  },
-  content: {
-    flex: 1,
-    minWidth: 0,
-  },
-  image: {
-    height: "100%",
-    width: "100%",
-  },
-  pill: {
-    borderRadius: 999,
-    maxWidth: 145,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-  },
-  pillRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  pillText: {
-    fontSize: 11.5,
-    fontWeight: "500",
+    overflow: "hidden",
   },
   pressed: {
-    opacity: 0.78,
-    transform: [{ scale: 0.985 }],
-  },
-  quote: {
-    fontSize: 16.5,
-    fontWeight: "600",
-    letterSpacing: -0.25,
-    lineHeight: 22,
-    marginBottom: 10,
-  },
-  thumbnail: {
-    borderRadius: 17,
-    height: 74,
-    overflow: "hidden",
-    width: 74,
+    opacity: 0.9,
   },
 });

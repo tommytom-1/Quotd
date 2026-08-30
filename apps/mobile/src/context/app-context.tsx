@@ -12,6 +12,10 @@ import { useColorScheme } from "react-native";
 import type { ColorSchemeName } from "react-native";
 
 import {
+  ensureSpeakerProfiles,
+  renameSpeakerInState,
+} from "@/lib/speaker-utils";
+import {
   createInitialState,
   createLocalId,
   deletePersistedImage,
@@ -27,12 +31,17 @@ import type {
   NewQuoteInput,
   PersistedAppState,
   QuoteRecord,
+  SpeakerProfile,
   ThemePreference,
 } from "@/lib/types";
 
 interface AppContextValue {
   isLoading: boolean;
   quotes: QuoteRecord[];
+  speakers: SpeakerProfile[];
+  renameSpeaker: (id: string, name: string) => void;
+  setSpeakerAvatarFromUri: (id: string, uri: string) => Promise<void>;
+  removeSpeakerAvatar: (id: string) => void;
   profile: LocalProfile;
   themePreference: ThemePreference;
   resolvedTheme: ResolvedTheme;
@@ -74,14 +83,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PersistedAppState>(createInitialState);
   const [isLoading, setIsLoading] = useState(true);
   const stateRef = useRef(state);
+  const generationRef = useRef(0);
+  const speakerAvatarRequests = useRef(new Map<string, symbol>());
+  const profileAvatarRequest = useRef<symbol | null>(null);
+
+  const deleteUnusedImage = useCallback((uri: string | null) => {
+    const { current } = stateRef;
+    if (
+      uri &&
+      current.profile.avatarUri !== uri &&
+      !current.quotes.some((quote) => quote.imageUri === uri) &&
+      !current.speakers.some((speaker) => speaker.avatarUri === uri)
+    ) {
+      deletePersistedImage(uri);
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
+    const initialState = stateRef.current;
+    const generation = generationRef.current;
 
     const hydrate = async () => {
       try {
         const loadedState = await loadAppState();
-        if (!isMounted) {
+        if (
+          !isMounted ||
+          generation !== generationRef.current ||
+          stateRef.current !== initialState
+        ) {
           return;
         }
         stateRef.current = loadedState;
@@ -99,6 +129,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     return () => {
       isMounted = false;
+      generationRef.current += 1;
     };
   }, []);
 
@@ -115,12 +146,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addQuote = useCallback(
     async (input: NewQuoteInput) => {
       const id = createLocalId();
+      const generation = generationRef.current;
       let imageUri: string | null = null;
 
       try {
         imageUri = input.imageUri
           ? await persistImage(input.imageUri, "quote", id)
           : null;
+        if (generation !== generationRef.current) {
+          throw new Error("Quote creation cancelled");
+        }
         const quote: QuoteRecord = {
           id,
           text: input.text.trim(),
@@ -132,14 +167,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         commit((current) => ({
           ...current,
           quotes: [quote, ...current.quotes],
+          speakers: ensureSpeakerProfiles(current.speakers, [quote]),
         }));
         return quote;
       } catch (error) {
-        deletePersistedImage(imageUri);
+        deleteUnusedImage(imageUri);
         throw error;
       }
     },
-    [commit]
+    [commit, deleteUnusedImage]
   );
 
   const updateQuote = useCallback(
@@ -160,6 +196,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       commit((current) => ({
         ...current,
+        speakers: ensureSpeakerProfiles(current.speakers, [updated]),
         quotes: current.quotes.map((quote) =>
           quote.id === id ? updated : quote
         ),
@@ -180,9 +217,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...current,
         quotes: current.quotes.filter((item) => item.id !== id),
       }));
-      deletePersistedImage(quote.imageUri);
+      deleteUnusedImage(quote.imageUri);
+    },
+    [commit, deleteUnusedImage]
+  );
+
+  const renameSpeaker = useCallback(
+    (id: string, name: string) => {
+      commit((current) => renameSpeakerInState(current, id, name));
     },
     [commit]
+  );
+
+  const setSpeakerAvatarFromUri = useCallback(
+    async (id: string, uri: string) => {
+      if (!stateRef.current.speakers.some((speaker) => speaker.id === id)) {
+        throw new Error("Speaker not found");
+      }
+      const request = Symbol("speaker-avatar");
+      const generation = generationRef.current;
+      speakerAvatarRequests.current.set(id, request);
+      let nextAvatar: string | null = null;
+      try {
+        nextAvatar = await persistImage(uri, "avatar", createLocalId());
+        const speaker = stateRef.current.speakers.find(
+          (item) => item.id === id
+        );
+        if (
+          generation !== generationRef.current ||
+          speakerAvatarRequests.current.get(id) !== request ||
+          !speaker
+        ) {
+          deleteUnusedImage(nextAvatar);
+          return;
+        }
+        const oldAvatar = speaker.avatarUri;
+        commit((current) => ({
+          ...current,
+          speakers: current.speakers.map((item) =>
+            item.id === id ? { ...item, avatarUri: nextAvatar } : item
+          ),
+        }));
+        deleteUnusedImage(oldAvatar);
+      } catch (error) {
+        deleteUnusedImage(nextAvatar);
+        throw error;
+      } finally {
+        if (speakerAvatarRequests.current.get(id) === request) {
+          speakerAvatarRequests.current.delete(id);
+        }
+      }
+    },
+    [commit, deleteUnusedImage]
+  );
+
+  const removeSpeakerAvatar = useCallback(
+    (id: string) => {
+      const speaker = stateRef.current.speakers.find((item) => item.id === id);
+      if (!speaker) {
+        throw new Error("Speaker not found");
+      }
+      speakerAvatarRequests.current.delete(id);
+      commit((current) => ({
+        ...current,
+        speakers: current.speakers.map((item) =>
+          item.id === id ? { ...item, avatarUri: null } : item
+        ),
+      }));
+      deleteUnusedImage(speaker.avatarUri);
+    },
+    [commit, deleteUnusedImage]
   );
 
   const setDisplayName = useCallback(
@@ -197,32 +301,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setAvatarFromUri = useCallback(
     async (uri: string) => {
-      const oldAvatar = stateRef.current.profile.avatarUri;
+      const request = Symbol("profile-avatar");
+      profileAvatarRequest.current = request;
+      const generation = generationRef.current;
       let nextAvatar: string | null = null;
-
       try {
         nextAvatar = await persistImage(uri, "avatar", createLocalId());
+        if (
+          generation !== generationRef.current ||
+          profileAvatarRequest.current !== request
+        ) {
+          deleteUnusedImage(nextAvatar);
+          return;
+        }
+        const oldAvatar = stateRef.current.profile.avatarUri;
         commit((current) => ({
           ...current,
           profile: { ...current.profile, avatarUri: nextAvatar },
         }));
-        deletePersistedImage(oldAvatar);
+        deleteUnusedImage(oldAvatar);
       } catch (error) {
-        deletePersistedImage(nextAvatar);
+        deleteUnusedImage(nextAvatar);
         throw error;
       }
     },
-    [commit]
+    [commit, deleteUnusedImage]
   );
 
   const removeAvatar = useCallback(() => {
+    profileAvatarRequest.current = null;
     const oldAvatar = stateRef.current.profile.avatarUri;
     commit((current) => ({
       ...current,
       profile: { ...current.profile, avatarUri: null },
     }));
-    deletePersistedImage(oldAvatar);
-  }, [commit]);
+    deleteUnusedImage(oldAvatar);
+  }, [commit, deleteUnusedImage]);
 
   const setThemePreference = useCallback(
     (themePreference: ThemePreference) => {
@@ -233,6 +347,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const clearAllData = useCallback(() => {
     const initialState = createInitialState();
+    generationRef.current += 1;
+    speakerAvatarRequests.current.clear();
+    profileAvatarRequest.current = null;
     resetStorage(initialState);
     stateRef.current = initialState;
     setState(initialState);
@@ -245,6 +362,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => ({
       isLoading,
       quotes: state.quotes,
+      speakers: state.speakers,
+      renameSpeaker,
+      setSpeakerAvatarFromUri,
+      removeSpeakerAvatar,
       profile: state.profile,
       themePreference: state.themePreference,
       resolvedTheme,
@@ -265,6 +386,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isLoading,
       palette,
       removeAvatar,
+      renameSpeaker,
+      setSpeakerAvatarFromUri,
+      removeSpeakerAvatar,
+      state.speakers,
       resolvedTheme,
       setAvatarFromUri,
       setDisplayName,

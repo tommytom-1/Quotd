@@ -417,7 +417,7 @@ const styles = StyleSheet.create({
   cameraTextLabel: {
     color: "#FFFFFF",
     fontSize: 12.5,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   cameraViewport: {
     borderRadius: 38,
@@ -488,9 +488,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   permissionTitle: {
-    fontSize: 31,
-    fontWeight: "800",
+    fontSize: 26,
+    fontWeight: "600",
     letterSpacing: -0.9,
+    lineHeight: 32,
   },
   preview: {
     borderRadius: 38,
@@ -507,7 +508,7 @@ const styles = StyleSheet.create({
   },
   primaryText: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   secondaryButton: {
     alignItems: "center",
@@ -520,7 +521,7 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   shutterInner: {
     backgroundColor: "#FFFFFF",

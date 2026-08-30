@@ -1,4 +1,3 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import {
@@ -13,9 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Alert,
-  Animated,
   Modal,
-  PanResponder,
   PixelRatio,
   Platform,
   Pressable,
@@ -25,14 +22,33 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
+import Reanimated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { captureRef, releaseCapture } from "react-native-view-shot";
 
 import { EditQuoteSheet } from "@/components/edit-quote-sheet";
 import { QuoteArtwork } from "@/components/quote-artwork";
+import type { QuoteCardFrame } from "@/components/quote-card";
 import { useApp } from "@/context/app-context";
 import { useToast } from "@/context/toast-context";
 import { playSuccessHaptic } from "@/lib/haptics";
+import type { QuoteArtworkVariant } from "@/lib/quote-grid";
+import { QUOTE_RADII } from "@/lib/quote-style";
+import { transitionOpacity, transitionSize } from "@/lib/quote-transition";
 import type { QuoteRecord } from "@/lib/types";
 
 type WorkingAction = "share" | "save" | null;
@@ -41,12 +57,16 @@ interface QuoteDetailSheetProps {
   quote: QuoteRecord;
   onClose: () => void;
   onQuoteUpdated: (quote: QuoteRecord) => void;
+  sourceFrame: QuoteCardFrame;
+  sourceVariant: Exclude<QuoteArtworkVariant, "detail">;
 }
 
 export function QuoteDetailSheet({
   quote,
   onClose,
   onQuoteUpdated,
+  sourceFrame,
+  sourceVariant,
 }: QuoteDetailSheetProps) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -57,11 +77,26 @@ export function QuoteDetailSheet({
   const maxCardHeight = sheetHeight - Math.max(insets.bottom, 12) - 116;
   const cardWidth = Math.min(maxCardWidth, maxCardHeight * 0.75);
   const cardHeight = cardWidth * (4 / 3);
+  const sheetTop = height - sheetHeight;
+  const targetFrame = {
+    height: cardHeight,
+    width: cardWidth,
+    x: (width - cardWidth) / 2,
+    y: sheetTop + 32,
+  };
   const artworkRef = useRef<View>(null);
-  const translateY = useRef(new Animated.Value(sheetHeight)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const transitionProgress = useSharedValue(0);
+  const dragY = useSharedValue(0);
+  const dragStartY = useSharedValue(0);
+  const artworkVisible = useSharedValue(0);
+  const closing = useSharedValue(false);
+  const openingStarted = useRef(false);
   const isClosing = useRef(false);
+  const afterDismissRef = useRef<(() => void) | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [transitionComplete, setTransitionComplete] = useState(false);
+  const [modalShown, setModalShown] = useState(false);
+  const [artworkSettled, setArtworkSettled] = useState(!quote.imageUri);
   const [artworkReady, setArtworkReady] = useState(!quote.imageUri);
   const [workingAction, setWorkingAction] = useState<WorkingAction>(null);
   const [shareComplete, setShareComplete] = useState(false);
@@ -70,6 +105,7 @@ export function QuoteDetailSheet({
     type: "success" | "error";
   } | null>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shareTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showModalFeedback = (message: string, type: "success" | "error") => {
     if (feedbackTimer.current) {
@@ -84,79 +120,182 @@ export function QuoteDetailSheet({
       if (feedbackTimer.current) {
         clearTimeout(feedbackTimer.current);
       }
+      if (shareTimer.current) {
+        clearTimeout(shareTimer.current);
+      }
+      cancelAnimation(transitionProgress);
+      cancelAnimation(dragY);
     },
-    []
+    [dragY, transitionProgress]
   );
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(translateY, {
-        duration: 420,
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        duration: 260,
-        toValue: 1,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [backdropOpacity, translateY]);
+  const finishOpening = useCallback(() => {
+    if (!isClosing.current) {
+      setTransitionComplete(true);
+    }
+  }, []);
 
-  const dismiss = useCallback(() => {
-    if (isClosing.current) {
+  const handleImageSettled = useCallback((ready: boolean) => {
+    setArtworkReady(ready);
+    // Image errors still open the sheet with a gradient fallback. Exporting an
+    // incomplete photo card stays disabled, but the user can edit or dismiss it.
+    setArtworkSettled(true);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !modalShown ||
+      !artworkSettled ||
+      openingStarted.current ||
+      isClosing.current
+    ) {
       return;
     }
-    isClosing.current = true;
-    Animated.parallel([
-      Animated.timing(translateY, {
-        duration: 330,
-        toValue: sheetHeight,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        duration: 260,
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-    ]).start(() => onClose());
-  }, [backdropOpacity, onClose, sheetHeight, translateY]);
+    openingStarted.current = true;
+    artworkVisible.value = 1;
+    transitionProgress.value = withTiming(
+      1,
+      {
+        duration: 420,
+        easing: Easing.bezier(0.2, 0.82, 0.2, 1),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(finishOpening)();
+        }
+      }
+    );
+  }, [
+    artworkSettled,
+    artworkVisible,
+    finishOpening,
+    modalShown,
+    transitionProgress,
+  ]);
 
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          gesture.dy > 5 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-        onPanResponderMove: (_, gesture) => {
-          translateY.setValue(Math.max(0, gesture.dy));
+  const sourceRadius = QUOTE_RADII[sourceVariant];
+  const detailRadius = QUOTE_RADII.detail;
+  const sharedCardStyle = useAnimatedStyle(() => ({
+    ...transitionSize(sourceFrame, targetFrame, transitionProgress.value),
+    opacity: artworkVisible.value,
+    borderRadius: interpolate(
+      transitionProgress.value,
+      [0, 1],
+      [sourceRadius, detailRadius]
+    ),
+    shadowOpacity: 0.2 * transitionProgress.value,
+    transform: [
+      {
+        translateX:
+          (sourceFrame.x - targetFrame.x) * (1 - transitionProgress.value),
+      },
+      {
+        translateY:
+          (sourceFrame.y - targetFrame.y) * (1 - transitionProgress.value) +
+          dragY.value * transitionProgress.value,
+      },
+    ],
+  }));
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: transitionOpacity(transitionProgress.value, 0, 0.65),
+  }));
+  const sheetStyle = useAnimatedStyle(() => ({
+    opacity: transitionOpacity(transitionProgress.value, 0, 0.8),
+    transform: [{ translateY: dragY.value * transitionProgress.value }],
+  }));
+  const chromeStyle = useAnimatedStyle(() => ({
+    opacity: transitionOpacity(transitionProgress.value, 0.65, 1),
+  }));
+
+  const finishDismiss = useCallback(() => {
+    afterDismissRef.current?.();
+    afterDismissRef.current = null;
+    onClose();
+  }, [onClose]);
+
+  const closeFromOffset = useCallback(
+    (offsetY?: number, afterDismiss?: () => void) => {
+      if (isClosing.current) {
+        return;
+      }
+      isClosing.current = true;
+      afterDismissRef.current = afterDismiss ?? null;
+      closing.value = true;
+      cancelAnimation(dragY);
+      if (offsetY !== undefined) {
+        dragY.value = Math.max(0, offsetY);
+      }
+      setTransitionComplete(false);
+      if (!openingStarted.current) {
+        finishDismiss();
+        return;
+      }
+      transitionProgress.value = withTiming(
+        0,
+        {
+          duration: 340,
+          easing: Easing.bezier(0.4, 0, 0.2, 1),
         },
-        onPanResponderRelease: (_, gesture) => {
-          if (gesture.dy > 120 || gesture.vy > 1.1) {
-            dismiss();
-            return;
+        (finished) => {
+          if (finished) {
+            runOnJS(finishDismiss)();
           }
-          Animated.spring(translateY, {
-            damping: 22,
-            mass: 0.9,
-            stiffness: 210,
-            toValue: 0,
-            useNativeDriver: true,
-          }).start();
-        },
-        onPanResponderTerminate: () => {
-          Animated.spring(translateY, {
-            damping: 22,
-            stiffness: 210,
-            toValue: 0,
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
-    [dismiss, translateY]
+        }
+      );
+    },
+    [closing, dragY, finishDismiss, transitionProgress]
+  );
+
+  const dismiss = useCallback(() => closeFromOffset(), [closeFromOffset]);
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(transitionComplete && !workingAction && !isEditing)
+        .activeOffsetY(5)
+        .failOffsetX([-20, 20])
+        .onStart(() => {
+          cancelAnimation(dragY);
+          dragStartY.value = dragY.value;
+        })
+        .onUpdate((event) => {
+          if (!closing.value) {
+            dragY.value = Math.max(0, dragStartY.value + event.translationY);
+          }
+        })
+        .onEnd((event) => {
+          if (!closing.value && (dragY.value > 120 || event.velocityY > 1100)) {
+            closing.value = true;
+            runOnJS(closeFromOffset)(dragY.value);
+          }
+        })
+        .onFinalize(() => {
+          if (!closing.value) {
+            dragY.value = withSpring(0, {
+              damping: 22,
+              mass: 0.9,
+              stiffness: 210,
+            });
+          }
+        }),
+    [
+      closeFromOffset,
+      closing,
+      dragStartY,
+      dragY,
+      isEditing,
+      transitionComplete,
+      workingAction,
+    ]
   );
 
   const captureArtwork = () => {
-    if (!artworkRef.current || !artworkReady) {
+    if (
+      !artworkRef.current ||
+      !artworkReady ||
+      !transitionComplete ||
+      isClosing.current
+    ) {
       throw new Error("The quote artwork is not ready yet.");
     }
 
@@ -192,7 +331,10 @@ export function QuoteDetailSheet({
           });
       await shareOperation;
       setShareComplete(true);
-      setTimeout(() => setShareComplete(false), 1800);
+      if (shareTimer.current) {
+        clearTimeout(shareTimer.current);
+      }
+      shareTimer.current = setTimeout(() => setShareComplete(false), 1800);
     } catch (error) {
       console.warn("[quotd-share]", error);
       showModalFeedback("Could not share this quote", "error");
@@ -249,15 +391,16 @@ export function QuoteDetailSheet({
       {
         text: "Delete",
         style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteQuote(quote.id);
-            showToast("Quote deleted", "info");
-            dismiss();
-          } catch (error) {
-            console.warn("[quotd-delete-quote]", error);
-            showModalFeedback("Could not delete this quote", "error");
-          }
+        onPress: () => {
+          closeFromOffset(0, () => {
+            try {
+              deleteQuote(quote.id);
+              showToast("Quote deleted", "info");
+            } catch (error) {
+              console.warn("[quotd-delete-quote]", error);
+              showToast("Could not delete this quote", "error");
+            }
+          });
         },
       },
     ]);
@@ -267,18 +410,19 @@ export function QuoteDetailSheet({
     <Modal
       animationType="none"
       onRequestClose={() => (isEditing ? setIsEditing(false) : dismiss())}
+      onShow={() => setModalShown(true)}
       statusBarTranslucent
       transparent
       visible
     >
-      <View style={styles.modalRoot}>
-        <Animated.View
+      <GestureHandlerRootView style={styles.modalRoot}>
+        <Reanimated.View
           style={[
             styles.backdrop,
             {
               backgroundColor: palette.overlay,
-              opacity: backdropOpacity,
             },
+            backdropStyle,
           ]}
         >
           <Pressable
@@ -286,77 +430,44 @@ export function QuoteDetailSheet({
             onPress={dismiss}
             style={StyleSheet.absoluteFill}
           />
-        </Animated.View>
+        </Reanimated.View>
 
-        <Animated.View
+        <Reanimated.View
           style={[
             styles.sheet,
             {
               backgroundColor: palette.background,
               height: sheetHeight,
               paddingBottom: Math.max(insets.bottom, 12),
-              transform: [{ translateY }],
             },
+            sheetStyle,
           ]}
         >
-          <Pressable
-            accessibilityLabel="Close quote details"
-            accessibilityHint="Swipe down or double tap to close"
-            accessibilityRole="button"
-            onPress={dismiss}
-            style={styles.handleArea}
-            {...panResponder.panHandlers}
-          >
-            <View
-              style={[styles.handle, { backgroundColor: palette.textMuted }]}
-            />
-          </Pressable>
+          <GestureDetector gesture={panGesture}>
+            <Reanimated.View>
+              <Pressable
+                accessibilityLabel="Close quote details"
+                accessibilityHint="Swipe down or double tap to close"
+                accessibilityRole="button"
+                onPress={dismiss}
+                style={styles.handleArea}
+              >
+                <View
+                  style={[
+                    styles.handle,
+                    { backgroundColor: palette.textMuted },
+                  ]}
+                />
+              </Pressable>
+            </Reanimated.View>
+          </GestureDetector>
 
-          <View
-            style={[
-              styles.artworkFrame,
-              { height: cardHeight, width: cardWidth },
-            ]}
-          >
-            <QuoteArtwork
-              ref={artworkRef}
-              borderRadius={34}
-              onImageReady={() => setArtworkReady(true)}
-              quote={quote}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["rgba(0,0,0,0.28)", "transparent"]}
-              pointerEvents="none"
-              style={styles.topShade}
-            />
-            <Pressable
-              accessibilityLabel="Close"
-              hitSlop={5}
-              onPress={dismiss}
-              style={({ pressed }) => [
-                styles.artworkIcon,
-                styles.closeArtworkIcon,
-                pressed && styles.pressed,
-              ]}
-            >
-              <X color="#FFFFFF" size={16} strokeWidth={2.2} />
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Delete quote"
-              hitSlop={5}
-              onPress={handleDelete}
-              style={({ pressed }) => [
-                styles.artworkIcon,
-                styles.deleteArtworkIcon,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Trash2 color="#FFFFFF" size={15} strokeWidth={1.9} />
-            </Pressable>
-          </View>
+          <View pointerEvents="none" style={{ height: cardHeight }} />
 
-          <View style={styles.actions}>
+          <Reanimated.View
+            pointerEvents={transitionComplete ? "auto" : "none"}
+            style={[styles.actions, chromeStyle]}
+          >
             <ActionButton
               icon={<Pencil color={palette.text} size={16} strokeWidth={1.9} />}
               label="Edit"
@@ -386,8 +497,62 @@ export function QuoteDetailSheet({
               label={workingAction === "save" ? "Saving…" : "Save"}
               onPress={handleSave}
             />
-          </View>
-        </Animated.View>
+          </Reanimated.View>
+        </Reanimated.View>
+
+        {/* This artwork stays mounted through opening, sharing and dismissal. */}
+        <Reanimated.View
+          pointerEvents={transitionComplete ? "auto" : "none"}
+          style={[
+            styles.sharedArtwork,
+            { left: targetFrame.x, top: targetFrame.y },
+            sharedCardStyle,
+          ]}
+        >
+          <QuoteArtwork
+            ref={artworkRef}
+            borderRadius={detailRadius}
+            onImageSettled={handleImageSettled}
+            quote={quote}
+            transition={{
+              fromVariant: sourceVariant,
+              source: sourceFrame,
+              target: targetFrame,
+              imageSize: sourceFrame.imageSize,
+              progress: transitionProgress,
+            }}
+            variant="detail"
+          />
+          <Reanimated.View
+            pointerEvents="box-none"
+            style={[styles.artworkChrome, chromeStyle]}
+          >
+            <Pressable
+              accessibilityLabel="Close"
+              hitSlop={5}
+              onPress={dismiss}
+              style={({ pressed }) => [
+                styles.artworkIcon,
+                styles.closeArtworkIcon,
+                pressed && styles.pressed,
+              ]}
+            >
+              <X color="#FFFFFF" size={16} strokeWidth={2.2} />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Delete quote"
+              hitSlop={5}
+              onPress={handleDelete}
+              style={({ pressed }) => [
+                styles.artworkIcon,
+                styles.deleteArtworkIcon,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Trash2 color="#FFFFFF" size={15} strokeWidth={1.9} />
+            </Pressable>
+          </Reanimated.View>
+        </Reanimated.View>
 
         {isEditing ? (
           <EditQuoteSheet
@@ -419,7 +584,7 @@ export function QuoteDetailSheet({
             </Text>
           </View>
         ) : null}
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -462,7 +627,7 @@ function ActionButton({
 const styles = StyleSheet.create({
   actionButton: {
     alignItems: "center",
-    borderRadius: 999,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
     flexDirection: "row",
@@ -481,14 +646,12 @@ const styles = StyleSheet.create({
     marginTop: 17,
     paddingHorizontal: 16,
   },
-  artworkFrame: {
-    alignSelf: "center",
-    borderRadius: 34,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 22,
-    elevation: 8,
+  artworkChrome: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   artworkIcon: {
     alignItems: "center",
@@ -551,18 +714,19 @@ const styles = StyleSheet.create({
     opacity: 0.72,
     transform: [{ scale: 0.97 }],
   },
-  sheet: {
-    borderTopLeftRadius: 38,
-    borderTopRightRadius: 38,
-    overflow: "hidden",
-  },
-  topShade: {
-    borderTopLeftRadius: 34,
-    borderTopRightRadius: 34,
-    height: 90,
-    left: 0,
+  sharedArtwork: {
+    backgroundColor: "#777",
+    borderCurve: "continuous",
+    elevation: 8,
     position: "absolute",
-    right: 0,
-    top: 0,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 22,
+  },
+  sheet: {
+    borderCurve: "continuous",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    overflow: "hidden",
   },
 });

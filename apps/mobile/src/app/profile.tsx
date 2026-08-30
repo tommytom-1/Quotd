@@ -2,7 +2,6 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
-  ArrowLeft,
   Camera,
   Check,
   ChevronRight,
@@ -25,8 +24,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  BottomNavigation,
+  BOTTOM_NAVIGATION_HEIGHT,
+  hasNativeIosToolbar,
+} from "@/components/bottom-navigation";
 import { LoadingScreen } from "@/components/loading-screen";
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useApp } from "@/context/app-context";
@@ -42,6 +46,7 @@ const THEME_OPTIONS: { label: string; value: ThemePreference }[] = [
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const showToast = useToast();
   const {
     clearAllData,
@@ -154,31 +159,21 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView
-      edges={["top", "bottom"]}
+    <View
+      collapsable={false}
       style={[styles.safeArea, { backgroundColor: palette.background }]}
     >
       <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
-      <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="Go back"
-          hitSlop={8}
-          onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.backButton,
-            { backgroundColor: palette.surface },
-            pressed && styles.pressed,
-          ]}
-        >
-          <ArrowLeft color={palette.textSecondary} size={17} strokeWidth={2} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: palette.text }]}>
-          Profile
-        </Text>
-      </View>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={[
+          styles.scrollContent,
+          !hasNativeIosToolbar && {
+            paddingBottom:
+              BOTTOM_NAVIGATION_HEIGHT + Math.max(insets.bottom, 12) + 24,
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -404,7 +399,14 @@ export default function ProfileScreen() {
           Quotd · {new Date().getFullYear()}
         </Text>
       </ScrollView>
-    </SafeAreaView>
+      <BottomNavigation
+        onSwitchView={() => router.dismissTo("/quotes")}
+        onAdd={() => {
+          void playSelectionHaptic();
+          router.push("/capture");
+        }}
+      />
+    </View>
   );
 }
 
@@ -512,13 +514,6 @@ const styles = StyleSheet.create({
     paddingBottom: 31,
     paddingTop: 15,
   },
-  backButton: {
-    alignItems: "center",
-    borderRadius: 18,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
   cameraBadge: {
     alignItems: "center",
     borderColor: "rgba(255,255,255,0.7)",
@@ -543,18 +538,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 8,
     textAlign: "center",
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 13,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    letterSpacing: -0.5,
   },
   inlineButton: {
     alignItems: "center",
@@ -609,8 +592,8 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   prototypeTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
   },
   removePhoto: {
     fontSize: 12,
@@ -620,7 +603,7 @@ const styles = StyleSheet.create({
   resetLabel: {
     flex: 1,
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   resetRow: {
     alignItems: "center",
@@ -671,7 +654,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "500",
     letterSpacing: 1.15,
     marginBottom: 8,
   },
@@ -682,7 +665,7 @@ const styles = StyleSheet.create({
   },
   themeChipText: {
     fontSize: 11.5,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   themeOptions: {
     flexDirection: "row",

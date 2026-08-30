@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   },
   saveText: {
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   screen: {
     flex: 1,
@@ -238,15 +238,16 @@ const styles = StyleSheet.create({
   },
   suggestionsLabel: {
     fontSize: 10.5,
-    fontWeight: "700",
+    fontWeight: "500",
     letterSpacing: 1,
     marginBottom: 9,
     paddingHorizontal: 2,
   },
   title: {
-    fontSize: 33,
-    fontWeight: "800",
+    fontSize: 26,
+    fontWeight: "600",
     letterSpacing: -1,
+    lineHeight: 32,
     marginBottom: 24,
   },
 });
