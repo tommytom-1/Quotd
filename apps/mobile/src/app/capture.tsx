@@ -105,10 +105,6 @@ export default function CaptureScreen() {
       onClose={close}
       onContinue={() => setStage("quote")}
       onRetake={() => setImageUri(null)}
-      onTextOnly={() => {
-        setImageUri(null);
-        setStage("quote");
-      }}
     />
   );
 }
