@@ -3,7 +3,12 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { forwardRef, useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import type { ImageStyle, StyleProp, ViewStyle } from "react-native";
+import type {
+  HostInstance,
+  ImageStyle,
+  StyleProp,
+  ViewStyle,
+} from "react-native";
 import Animated, {
   createAnimatedComponent,
   interpolate,
@@ -498,7 +503,7 @@ function ArtworkBackground({
   );
 }
 
-export const QuoteArtwork = forwardRef<View, QuoteArtworkProps>(
+export const QuoteArtwork = forwardRef<HostInstance, QuoteArtworkProps>(
   (
     {
       quote,

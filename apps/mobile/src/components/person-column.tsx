@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { memo, useCallback, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import type { ListRenderItem } from "react-native";
+import type { HostInstance, ListRenderItem } from "react-native";
 import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -133,7 +133,7 @@ interface ColumnPolaroidProps {
 
 const ColumnPolaroid = memo(
   ({ quote, index, width, scrollY, hiddenId, onOpen }: ColumnPolaroidProps) => {
-    const slotRef = useRef<View>(null);
+    const slotRef = useRef<HostInstance>(null);
     const metrics = polaroidMetrics(width);
     const { step, peek } = columnMetrics(width);
     const { tilt, offsetX } = polaroidPlacement(quote.id, width);

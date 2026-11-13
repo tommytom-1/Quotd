@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import type { HostInstance } from "react-native";
 import Animated, {
   createAnimatedComponent,
   useAnimatedProps,
@@ -70,8 +71,8 @@ export const WallPolaroid = memo(
     uncover,
     onOpen,
   }: WallPolaroidProps) => {
-    const slotRef = useRef<View>(null);
-    const snapshotRef = useRef<View>(null);
+    const slotRef = useRef<HostInstance>(null);
+    const snapshotRef = useRef<HostInstance>(null);
     const [imageSettled, setImageSettled] = useState(false);
     const [snapshot, setSnapshot] = useState<string | null>(null);
     const metrics = polaroidMetrics(width);

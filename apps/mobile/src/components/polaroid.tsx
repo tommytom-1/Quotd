@@ -1,9 +1,13 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
-import type { Ref } from "react";
+import type { ComponentRef, Ref } from "react";
 import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
-import type { GestureResponderEvent, TextLayoutEventData } from "react-native";
+import type {
+  GestureResponderEvent,
+  HostInstance,
+  TextLayoutEvent,
+} from "react-native";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import type { SharedValue } from "react-native-reanimated";
 
@@ -28,7 +32,7 @@ import type { QuoteRecord } from "@/lib/types";
 
 const paperGrain = require("@/assets/images/paper-grain.png");
 
-type TextLines = TextLayoutEventData["lines"];
+type TextLines = TextLayoutEvent["nativeEvent"]["lines"];
 
 export interface PolaroidEditing {
   /** False while the polaroid is moving or being exported. */
@@ -52,7 +56,7 @@ interface PolaroidProps {
   /** Grows the caption to hold the full quote and its speaker. */
   focus?: PolaroidFocus;
   onImageSettled?: (ready: boolean) => void;
-  paperRef?: Ref<View>;
+  paperRef?: Ref<HostInstance>;
   /** Leaves the shadow to the caller. */
   flat?: boolean;
 }
@@ -293,7 +297,7 @@ function useCaptionEditing(quote: QuoteRecord, editing?: PolaroidEditing) {
     caret: number;
   } | null>(null);
   const activeField = useRef<CaptionField | null>(null);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const lines = useRef<Record<CaptionField, TextLines>>({
     speaker: [],
     text: [],

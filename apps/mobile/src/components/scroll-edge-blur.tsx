@@ -3,7 +3,7 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import type { RefObject } from "react";
 import { StyleSheet } from "react-native";
-import type { View } from "react-native";
+import type { HostInstance } from "react-native";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -19,7 +19,7 @@ export function ScrollEdgeBlur({
   targetRef,
 }: {
   scrollOffset: SharedValue<number>;
-  targetRef: RefObject<View | null>;
+  targetRef: RefObject<HostInstance | null>;
 }) {
   const insets = useSafeAreaInsets();
   const { resolvedTheme } = useApp();

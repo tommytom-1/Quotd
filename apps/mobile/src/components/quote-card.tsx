@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Pressable, StyleSheet } from "react-native";
-import type { StyleProp, View, ViewStyle } from "react-native";
+import type { HostInstance, StyleProp, ViewStyle } from "react-native";
 
 import { QuoteArtwork } from "@/components/quote-artwork";
 import type { QuoteArtworkVariant } from "@/lib/quote-grid";
@@ -25,7 +25,7 @@ interface QuoteCardProps {
 }
 
 export function QuoteCard({ quote, onPress, style, variant }: QuoteCardProps) {
-  const cardRef = useRef<View>(null);
+  const cardRef = useRef<HostInstance>(null);
   const imageSize = useRef<ArtworkSize | null>(null);
   const borderRadius = QUOTE_RADII[variant];
 

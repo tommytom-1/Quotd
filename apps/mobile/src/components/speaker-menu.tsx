@@ -7,6 +7,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import type { HostInstance } from "react-native";
 
 import type { SpeakerMenuProps } from "@/components/speaker-menu.types";
 import { useApp } from "@/context/app-context";
@@ -24,7 +25,7 @@ export function SpeakerMenu({
 }: SpeakerMenuProps) {
   const { palette } = useApp();
   const { width, height } = useWindowDimensions();
-  const anchor = useRef<View>(null);
+  const anchor = useRef<HostInstance>(null);
   const [position, setPosition] = useState<{
     left: number;
     top: number;

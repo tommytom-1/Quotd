@@ -63,7 +63,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 function resolveTheme(
   preference: ThemePreference,
-  systemTheme: ColorSchemeName
+  systemTheme: ColorSchemeName | null
 ): ResolvedTheme {
   switch (preference) {
     case "dark": {

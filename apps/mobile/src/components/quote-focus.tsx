@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import type { HostInstance } from "react-native";
 import {
   Gesture,
   GestureDetector,
@@ -92,7 +93,7 @@ export function QuoteFocus({
     x: (width - cardWidth) / 2,
     y: insets.top + CARD_TOP,
   };
-  const paperRef = useRef<View>(null);
+  const paperRef = useRef<HostInstance>(null);
   const progress = useSharedValue(0);
   const dragY = useSharedValue(0);
   const dragStartY = useSharedValue(0);

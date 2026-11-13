@@ -22,6 +22,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import type { HostInstance } from "react-native";
 import {
   Gesture,
   GestureDetector,
@@ -84,7 +85,7 @@ export function QuoteDetailSheet({
     x: (width - cardWidth) / 2,
     y: sheetTop + 32,
   };
-  const artworkRef = useRef<View>(null);
+  const artworkRef = useRef<HostInstance>(null);
   const transitionProgress = useSharedValue(0);
   const dragY = useSharedValue(0);
   const dragStartY = useSharedValue(0);
