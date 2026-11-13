@@ -1,20 +1,8 @@
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import {
-  Camera,
-  Check,
-  ChevronRight,
-  CloudOff,
-  HardDrive,
-  Palette,
-  RotateCcw,
-  ShieldCheck,
-  UserRound,
-  X,
-} from "lucide-react-native";
+import { Camera, Check, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
 import {
   Alert,
   Pressable,
@@ -59,6 +47,7 @@ export default function ProfileScreen() {
     setAvatarFromUri,
     setDisplayName,
     setThemePreference,
+    speakers,
     themePreference,
   } = useApp();
   const [editingName, setEditingName] = useState(false);
@@ -158,17 +147,20 @@ export default function ProfileScreen() {
     );
   };
 
+  const card = [styles.card, { backgroundColor: palette.surface }];
+  const canSaveName = Boolean(name.trim()) && !isSaving;
+
   return (
     <View
       collapsable={false}
-      style={[styles.safeArea, { backgroundColor: palette.background }]}
+      style={[styles.screen, { backgroundColor: palette.background }]}
     >
       <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
 
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[
-          styles.scrollContent,
+          styles.content,
           !hasNativeIosToolbar && {
             paddingBottom:
               BOTTOM_NAVIGATION_HEIGHT + Math.max(insets.bottom, 12) + 24,
@@ -177,226 +169,189 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.avatarSection}>
+        <View style={styles.hero}>
           <Pressable
             accessibilityLabel="Change profile photo"
+            accessibilityRole="button"
             disabled={isSaving}
             onPress={pickAvatar}
-            style={({ pressed }) => [pressed && styles.pressed]}
+            style={({ pressed }) => pressed && styles.pressed}
           >
-            <ProfileAvatar size={88} uri={profile.avatarUri} />
+            <ProfileAvatar size={104} uri={profile.avatarUri} />
             <View
               style={[
                 styles.cameraBadge,
-                { backgroundColor: palette.inverseSurface },
+                {
+                  backgroundColor: palette.inverseSurface,
+                  borderColor: palette.background,
+                },
               ]}
             >
-              <Camera color={palette.inverseText} size={13} strokeWidth={2} />
+              <Camera color={palette.inverseText} size={15} strokeWidth={2} />
             </View>
           </Pressable>
-          <Pressable disabled={isSaving} onPress={pickAvatar}>
-            <Text style={[styles.avatarHint, { color: palette.textMuted }]}>
-              {isSaving ? "Saving photo…" : "Tap to change photo"}
-            </Text>
-          </Pressable>
+          {editingName ? null : (
+            <Pressable
+              accessibilityHint="Edits your name"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => setEditingName(true)}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.name,
+                  {
+                    color: profile.displayName
+                      ? palette.text
+                      : palette.textMuted,
+                  },
+                ]}
+              >
+                {profile.displayName || "Add your name"}
+              </Text>
+            </Pressable>
+          )}
           {profile.avatarUri ? (
             <Pressable hitSlop={8} onPress={handleRemoveAvatar}>
-              <Text style={[styles.removePhoto, { color: palette.danger }]}>
-                Remove
+              <Text style={[styles.link, { color: palette.textMuted }]}>
+                {isSaving ? "Saving photo…" : "Remove photo"}
               </Text>
             </Pressable>
           ) : null}
         </View>
 
-        <Section label="Local profile">
-          {editingName ? (
-            <View style={styles.inlineEdit}>
+        {editingName ? (
+          <View style={[card, styles.fieldCard]}>
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: palette.textMuted }]}>
+                Your name
+              </Text>
               <TextInput
+                accessibilityLabel="Your name"
+                autoCapitalize="words"
+                autoComplete="name"
                 autoFocus
                 editable={!isSaving}
                 keyboardAppearance={resolvedTheme}
                 onChangeText={setName}
                 onSubmitEditing={saveName}
-                placeholder="Your name"
+                placeholder="e.g. Alex"
                 placeholderTextColor={palette.textMuted}
                 returnKeyType="done"
                 selectionColor={palette.text}
-                style={[
-                  styles.nameInput,
-                  { color: palette.text, borderColor: palette.border },
-                ]}
+                style={[styles.input, { color: palette.text }]}
                 value={name}
               />
-              <Pressable
-                accessibilityLabel="Cancel"
-                disabled={isSaving}
-                onPress={() => {
-                  setName(profile.displayName);
-                  setEditingName(false);
-                }}
-                style={[
-                  styles.inlineButton,
-                  { backgroundColor: palette.surfaceMuted },
-                ]}
-              >
-                <X color={palette.textSecondary} size={13} strokeWidth={2.2} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Save name"
-                disabled={!name.trim() || isSaving}
-                onPress={saveName}
-                style={[
-                  styles.inlineButton,
-                  { backgroundColor: palette.inverseSurface },
-                  (!name.trim() || isSaving) && styles.disabled,
-                ]}
-              >
-                <Check
-                  color={palette.inverseText}
-                  size={13}
-                  strokeWidth={2.5}
-                />
-              </Pressable>
             </View>
-          ) : (
-            <SettingsRow
-              icon={
-                <UserRound
-                  color={palette.textSecondary}
-                  size={16}
-                  strokeWidth={1.7}
-                />
-              }
-              label="Name"
-              onPress={() => setEditingName(true)}
-              value={profile.displayName || "Not set"}
-            />
-          )}
-        </Section>
-
-        <Section label="Appearance">
-          <View style={styles.appearanceRow}>
-            <View
-              style={[
-                styles.rowIcon,
+            <Pressable
+              accessibilityLabel="Cancel"
+              accessibilityRole="button"
+              disabled={isSaving}
+              onPress={() => {
+                setName(profile.displayName);
+                setEditingName(false);
+              }}
+              style={({ pressed }) => [
+                styles.roundButton,
+                { backgroundColor: palette.surfaceMuted },
+                pressed && styles.pressed,
+              ]}
+            >
+              <X color={palette.textSecondary} size={20} strokeWidth={2.2} />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Save name"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canSaveName }}
+              disabled={!canSaveName}
+              onPress={saveName}
+              style={({ pressed }) => [
+                styles.roundButton,
                 {
-                  backgroundColor: palette.surfaceElevated,
-                  borderColor: palette.border,
+                  backgroundColor: canSaveName
+                    ? palette.inverseSurface
+                    : palette.surfaceMuted,
                 },
+                pressed && styles.pressed,
               ]}
             >
-              <Palette
-                color={palette.textSecondary}
-                size={16}
-                strokeWidth={1.7}
+              <Check
+                color={canSaveName ? palette.inverseText : palette.textMuted}
+                size={20}
+                strokeWidth={2.4}
               />
-            </View>
-            <View style={styles.appearanceContent}>
-              <Text style={[styles.rowLabel, { color: palette.text }]}>
-                Theme
-              </Text>
-              <View style={styles.themeOptions}>
-                {THEME_OPTIONS.map((option) => {
-                  const selected = themePreference === option.value;
-                  return (
-                    <Pressable
-                      key={option.value}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      onPress={() => changeTheme(option.value)}
-                      style={[
-                        styles.themeChip,
-                        {
-                          backgroundColor: selected
-                            ? palette.inverseSurface
-                            : palette.surfaceMuted,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.themeChipText,
-                          {
-                            color: selected
-                              ? palette.inverseText
-                              : palette.textSecondary,
-                          },
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
+            </Pressable>
           </View>
-        </Section>
+        ) : null}
 
-        <Section label="Storage">
-          <InfoRow
-            icon={
-              <HardDrive
-                color={palette.textSecondary}
-                size={16}
-                strokeWidth={1.7}
-              />
-            }
-            label="On this device"
-            value={`${quotes.length} ${quotes.length === 1 ? "quote" : "quotes"}`}
+        <View style={[card, styles.stats]}>
+          <Stat label={quotes.length === 1 ? "quote" : "quotes"}>
+            {quotes.length}
+          </Stat>
+          <View
+            style={[styles.statDivider, { backgroundColor: palette.border }]}
           />
-          <View style={[styles.divider, { backgroundColor: palette.border }]} />
-          <Pressable
-            onPress={resetApp}
-            style={({ pressed }) => [
-              styles.resetRow,
-              pressed && styles.rowPressed,
-            ]}
-          >
-            <View
-              style={[
-                styles.rowIcon,
-                { backgroundColor: palette.dangerSurface },
-              ]}
-            >
-              <RotateCcw color={palette.danger} size={16} strokeWidth={1.8} />
-            </View>
-            <Text style={[styles.resetLabel, { color: palette.danger }]}>
-              Reset local app
-            </Text>
-          </Pressable>
-        </Section>
+          <Stat label={speakers.length === 1 ? "person" : "people"}>
+            {speakers.length}
+          </Stat>
+        </View>
 
-        <View
-          style={[
-            styles.prototypeCard,
-            { backgroundColor: palette.surface, borderColor: palette.border },
-          ]}
-        >
-          <View style={styles.prototypeHeader}>
-            <ShieldCheck
-              color={palette.textSecondary}
-              size={18}
-              strokeWidth={1.7}
-            />
-            <Text style={[styles.prototypeTitle, { color: palette.text }]}>
-              Local prototype
-            </Text>
-          </View>
-          <Text style={[styles.prototypeCopy, { color: palette.textMuted }]}>
-            Your quotes and photos stay on this device for now. Accounts,
-            backup, and sync will arrive in a later version.
+        <View style={card}>
+          <Text style={[styles.label, { color: palette.textMuted }]}>
+            Appearance
           </Text>
-          <View style={styles.offlineRow}>
-            <CloudOff color={palette.textMuted} size={13} strokeWidth={1.7} />
-            <Text style={[styles.offlineText, { color: palette.textMuted }]}>
-              No account required
-            </Text>
+          <View
+            style={[styles.segments, { backgroundColor: palette.surfaceMuted }]}
+          >
+            {THEME_OPTIONS.map((option) => {
+              const selected = themePreference === option.value;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  key={option.value}
+                  onPress={() => changeTheme(option.value)}
+                  style={[
+                    styles.segment,
+                    selected && { backgroundColor: palette.inverseSurface },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      {
+                        color: selected
+                          ? palette.inverseText
+                          : palette.textSecondary,
+                      },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
+        <Pressable
+          accessibilityRole="button"
+          onPress={resetApp}
+          style={({ pressed }) => [...card, pressed && styles.pressed]}
+        >
+          <Text style={[styles.resetTitle, { color: palette.danger }]}>
+            Reset app
+          </Text>
+          <Text style={[styles.resetCopy, { color: palette.textMuted }]}>
+            Removes every quote, photo and setting on this device.
+          </Text>
+        </Pressable>
+
         <Text style={[styles.footer, { color: palette.textMuted }]}>
-          Quotd · {new Date().getFullYear()}
+          Your quotes stay on this device. No account needed.
+          {"\n"}Quotd · {new Date().getFullYear()}
         </Text>
       </ScrollView>
       <BottomNavigation
@@ -410,267 +365,141 @@ export default function ProfileScreen() {
   );
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
+function Stat({ children, label }: { children: number; label: string }) {
   const { palette } = useApp();
   return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionLabel, { color: palette.textMuted }]}>
-        {label.toUpperCase()}
-      </Text>
-      <View style={[styles.sectionCard, { backgroundColor: palette.surface }]}>
+    <View style={styles.stat}>
+      <Text style={[styles.statValue, { color: palette.text }]}>
         {children}
-      </View>
-    </View>
-  );
-}
-
-function SettingsRow({
-  icon,
-  label,
-  value,
-  onPress,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  onPress: () => void;
-}) {
-  const { palette } = useApp();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-    >
-      <View
-        style={[
-          styles.rowIcon,
-          {
-            backgroundColor: palette.surfaceElevated,
-            borderColor: palette.border,
-          },
-        ]}
-      >
-        {icon}
-      </View>
-      <Text style={[styles.rowLabel, { color: palette.text }]}>{label}</Text>
-      <Text
-        numberOfLines={1}
-        style={[styles.rowValue, { color: palette.textMuted }]}
-      >
-        {value}
       </Text>
-      <ChevronRight color={palette.textMuted} size={14} strokeWidth={1.8} />
-    </Pressable>
-  );
-}
-
-function InfoRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  const { palette } = useApp();
-  return (
-    <View style={styles.row}>
-      <View
-        style={[
-          styles.rowIcon,
-          {
-            backgroundColor: palette.surfaceElevated,
-            borderColor: palette.border,
-          },
-        ]}
-      >
-        {icon}
-      </View>
-      <Text style={[styles.rowLabel, { color: palette.text }]}>{label}</Text>
-      <Text style={[styles.rowValue, { color: palette.textMuted }]}>
-        {value}
+      <Text style={[styles.statLabel, { color: palette.textMuted }]}>
+        {label}
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  appearanceContent: {
-    flex: 1,
-  },
-  appearanceRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  avatarHint: {
-    fontSize: 13,
-    marginTop: 13,
-  },
-  avatarSection: {
-    alignItems: "center",
-    paddingBottom: 31,
-    paddingTop: 15,
-  },
   cameraBadge: {
     alignItems: "center",
-    borderColor: "rgba(255,255,255,0.7)",
-    borderRadius: 15,
-    borderWidth: 2,
-    bottom: 0,
-    height: 29,
+    borderRadius: 18,
+    borderWidth: 3,
+    bottom: -2,
+    height: 36,
     justifyContent: "center",
     position: "absolute",
-    right: 0,
-    width: 29,
+    right: -2,
+    width: 36,
   },
-  disabled: {
-    opacity: 0.35,
+  card: {
+    borderCurve: "continuous",
+    borderRadius: 26,
+    marginBottom: 12,
+    marginHorizontal: 16,
+    padding: 20,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginHorizontal: 14,
-  },
-  footer: {
-    fontSize: 11,
-    marginBottom: 10,
-    marginTop: 8,
-    textAlign: "center",
-  },
-  inlineButton: {
-    alignItems: "center",
-    borderRadius: 15,
-    height: 30,
-    justifyContent: "center",
-    width: 30,
-  },
-  inlineEdit: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  nameInput: {
-    borderBottomWidth: 1,
-    flex: 1,
-    fontSize: 15,
-    minHeight: 36,
-    paddingHorizontal: 2,
-  },
-  offlineRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    marginTop: 13,
-  },
-  offlineText: {
-    fontSize: 11.5,
-    fontWeight: "600",
-  },
-  pressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.97 }],
-  },
-  prototypeCard: {
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 23,
-    marginHorizontal: 20,
-    padding: 17,
-  },
-  prototypeCopy: {
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 8,
-  },
-  prototypeHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 9,
-  },
-  prototypeTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  removePhoto: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 7,
-  },
-  resetLabel: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  resetRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    padding: 14,
-  },
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 61,
-    paddingHorizontal: 14,
-  },
-  rowIcon: {
-    alignItems: "center",
-    borderRadius: 17,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 34,
-    justifyContent: "center",
-    width: 34,
-  },
-  rowLabel: {
-    flex: 1,
-    fontSize: 15,
-  },
-  rowPressed: {
-    opacity: 0.62,
-  },
-  rowValue: {
-    flexShrink: 1,
-    fontSize: 13,
-    maxWidth: 145,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  scrollContent: {
+  content: {
     paddingBottom: 12,
   },
-  section: {
-    marginBottom: 24,
-    paddingHorizontal: 20,
+  field: {
+    flex: 1,
+    gap: 3,
   },
-  sectionCard: {
-    borderRadius: 20,
-    overflow: "hidden",
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    letterSpacing: 1.15,
-    marginBottom: 8,
-  },
-  themeChip: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  themeChipText: {
-    fontSize: 11.5,
-    fontWeight: "500",
-  },
-  themeOptions: {
+  fieldCard: {
+    alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-    marginTop: 10,
+    gap: 10,
+    paddingRight: 14,
+  },
+  footer: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 10,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  hero: {
+    alignItems: "center",
+    gap: 6,
+    paddingBottom: 24,
+    paddingTop: 12,
+  },
+  input: {
+    fontSize: 18,
+    fontWeight: "600",
+    letterSpacing: -0.3,
+    padding: 0,
+  },
+  label: {
+    fontSize: 14,
+  },
+  link: {
+    fontSize: 14,
+  },
+  name: {
+    fontSize: 28,
+    fontWeight: "600",
+    letterSpacing: -0.8,
+    marginTop: 12,
+    maxWidth: 320,
+  },
+  pressed: {
+    opacity: 0.6,
+  },
+  resetCopy: {
+    fontSize: 14,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  resetTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  roundButton: {
+    alignItems: "center",
+    borderRadius: 24,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  screen: {
+    flex: 1,
+  },
+  segment: {
+    alignItems: "center",
+    borderRadius: 999,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 40,
+  },
+  segmentText: {
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  segments: {
+    borderRadius: 999,
+    flexDirection: "row",
+    marginTop: 12,
+    padding: 4,
+  },
+  stat: {
+    flex: 1,
+    gap: 2,
+  },
+  statDivider: {
+    alignSelf: "stretch",
+    marginHorizontal: 20,
+    width: StyleSheet.hairlineWidth,
+  },
+  statLabel: {
+    fontSize: 14,
+  },
+  statValue: {
+    fontSize: 40,
+    fontWeight: "600",
+    letterSpacing: -1.5,
+  },
+  stats: {
+    flexDirection: "row",
   },
 });
