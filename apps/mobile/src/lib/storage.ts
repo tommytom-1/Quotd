@@ -171,7 +171,8 @@ export function saveAppState(state: PersistedAppState) {
   }
 
   temporaryFile.create();
-  temporaryFile.write(JSON.stringify(serializeState(state)));
+  // `write` is asynchronous since SDK 58; the move below needs the bytes on disk.
+  temporaryFile.writeSync(JSON.stringify(serializeState(state)));
 
   if (STATE_FILE.exists) {
     STATE_FILE.copySync(BACKUP_STATE_FILE, { overwrite: true });
