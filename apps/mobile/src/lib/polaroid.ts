@@ -1,30 +1,3 @@
-export const MARKER_FONT = "Colastine";
-
-// The demo cut of Colastine draws a licence stamp for these characters.
-const STAMPED_GLYPHS = /[!$%&0-9?]+/gu;
-
-export interface MarkerRun {
-  text: string;
-  /** False for characters that must fall back to the system font. */
-  marker: boolean;
-}
-
-export function markerRuns(text: string): MarkerRun[] {
-  const runs: MarkerRun[] = [];
-  let cursor = 0;
-  for (const match of text.matchAll(STAMPED_GLYPHS)) {
-    if (match.index > cursor) {
-      runs.push({ marker: true, text: text.slice(cursor, match.index) });
-    }
-    runs.push({ marker: false, text: match[0] });
-    cursor = match.index + match[0].length;
-  }
-  if (cursor < text.length) {
-    runs.push({ marker: true, text: text.slice(cursor) });
-  }
-  return runs;
-}
-
 /** Share of a polaroid's height that stays visible above the next one. */
 const STACK_STEP = 0.44;
 /** Scroll distance, in stack steps, after which a leaving polaroid is gone. */
@@ -39,13 +12,51 @@ export interface PolaroidMetrics {
   captionTop: number;
   captionHeight: number;
   captionInset: number;
+  /** Corner radius of the card, and of the photo set inside it. */
+  radius: number;
+  photoRadius: number;
   /** Distance between the tops of two stacked polaroids. */
   step: number;
 }
 
+/** The camera's photos are 4:3; portrait, they are this wide for their height. */
+const SENSOR_RATIO = 3 / 4;
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Lays out a camera viewfinder so that what is framed is what is kept. The
+ * preview shows the whole photo, as large as fits, and the guide marks the
+ * part of it a polaroid shows: the full width, and a band from the middle.
+ */
+export function viewfinderLayout(frame: { width: number; height: number }) {
+  const width = Math.min(frame.width, frame.height * SENSOR_RATIO);
+  const height = width / SENSOR_RATIO;
+  const preview: Rect = {
+    x: (frame.width - width) / 2,
+    y: (frame.height - height) / 2,
+    width,
+    height,
+  };
+  const { photoWidth, photoHeight } = polaroidMetrics(1);
+  const guideHeight = (width / photoWidth) * photoHeight;
+  const guide: Rect = {
+    x: 0,
+    y: (height - guideHeight) / 2,
+    width,
+    height: guideHeight,
+  };
+  return { guide, preview };
+}
+
 /** Every measure derives from the width, so a polaroid scales uniformly. */
 export function polaroidMetrics(width: number): PolaroidMetrics {
-  const padding = width * 0.068;
+  const padding = width * 0.045;
   const photoWidth = width - padding * 2;
   const photoHeight = photoWidth * 1.03;
   const captionHeight = width * 0.33;
@@ -58,7 +69,10 @@ export function polaroidMetrics(width: number): PolaroidMetrics {
     photoHeight,
     captionTop: padding + photoHeight,
     captionHeight,
-    captionInset: width * 0.085,
+    captionInset: width * 0.07,
+    radius: width * 0.075,
+    // Concentric with the card, so the border around the photo stays even.
+    photoRadius: width * 0.075 - padding,
     step: height * STACK_STEP,
   };
 }
@@ -71,30 +85,31 @@ export interface QuoteTypography {
 }
 
 export function quoteTypography(text: string, width: number): QuoteTypography {
-  let ratio = 0.1;
+  let ratio = 0.074;
   let maxLines = 2;
   if (text.length > 110) {
-    ratio = 0.05;
-    maxLines = 5;
+    ratio = 0.042;
+    maxLines = 4;
   } else if (text.length > 48) {
-    ratio = 0.062;
+    ratio = 0.05;
     maxLines = 4;
   } else if (text.length > 20) {
-    ratio = 0.08;
+    ratio = 0.06;
     maxLines = 3;
   }
   const fontSize = width * ratio;
-  return { fontSize, lineHeight: fontSize * 1.25, maxLines };
+  return { fontSize, lineHeight: fontSize * 1.22, maxLines };
 }
 
 export function speakerTypography(width: number) {
-  const fontSize = width * 0.062;
-  return { fontSize, lineHeight: fontSize * 1.3 };
+  const fontSize = width * 0.045;
+  return { fontSize, lineHeight: fontSize * 1.25 };
 }
 
 /**
- * The wall centers up to `maxLines` lines in the caption. The focused polaroid
- * keeps those lines exactly there and lets the remaining text run below.
+ * The wall centers up to `maxLines` lines and the speaker's line in the
+ * caption. The focused polaroid keeps those lines exactly there and lets the
+ * remaining text run below, pushing the speaker down with it.
  */
 export function captionTopPadding(
   metrics: PolaroidMetrics,
@@ -102,9 +117,13 @@ export function captionTopPadding(
   lineCount: number
 ) {
   const lines = Math.min(Math.max(lineCount, 1), typography.maxLines);
+  const speaker = speakerTypography(metrics.width);
   return Math.max(
     0,
-    (metrics.captionHeight - lines * typography.lineHeight) / 2
+    (metrics.captionHeight -
+      lines * typography.lineHeight -
+      speaker.lineHeight) /
+      2
   );
 }
 
@@ -137,7 +156,7 @@ interface TextLine {
 /** What is written around each caption on the polaroid. */
 const CAPTION_MARKS = {
   speaker: ["- ", ""],
-  text: ['"', '"'],
+  text: ["\u201C", "\u201D"],
 } as const;
 
 export type CaptionField = keyof typeof CAPTION_MARKS;

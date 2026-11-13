@@ -175,7 +175,11 @@ const ColumnPolaroid = memo(
           style={{ height: metrics.height, left: offsetX, width }}
         >
           <Animated.View
-            style={[styles.card, { height: metrics.height }, cardStyle]}
+            style={[
+              styles.card,
+              { borderRadius: metrics.radius, height: metrics.height },
+              cardStyle,
+            ]}
           >
             <Pressable
               accessibilityLabel={`"${quote.text}", by ${quote.speaker}, ${formatDate(quote.createdAt)}`}
@@ -221,7 +225,8 @@ const styles = StyleSheet.create({
     width: AVATAR_SIZE,
   },
   card: {
-    backgroundColor: "#FAFAF8",
+    backgroundColor: "#FFFFFF",
+    borderCurve: "continuous",
     shadowColor: "#000",
     shadowOffset: { height: 5, width: 0 },
     shadowRadius: 12,

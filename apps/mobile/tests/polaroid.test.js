@@ -10,13 +10,14 @@ import {
   exitProgress,
   expandedHeight,
   focusOrigin,
-  markerRuns,
   PILE_DEPTH,
   pilePose,
   polaroidMetrics,
   polaroidPlacement,
   quoteTypography,
+  speakerTypography,
   readCaption,
+  viewfinderLayout,
   writeCaption,
 } from "../src/lib/polaroid.ts";
 
@@ -35,12 +36,13 @@ describe("polaroid layout", () => {
     expect(metrics.step).toBeLessThan(metrics.height);
   });
 
-  test("fits every wall line count inside the caption", () => {
+  test("fits every wall line count and the speaker inside the caption", () => {
+    const speaker = speakerTypography(metrics.width);
     for (const length of [5, 20, 21, 48, 49, 110, 111, 500]) {
       const typography = quoteTypography("x".repeat(length), metrics.width);
-      expect(typography.maxLines * typography.lineHeight).toBeLessThan(
-        metrics.captionHeight
-      );
+      expect(
+        typography.maxLines * typography.lineHeight + speaker.lineHeight
+      ).toBeLessThan(metrics.captionHeight * 0.92);
     }
   });
 
@@ -49,7 +51,10 @@ describe("polaroid layout", () => {
     const clamped = captionTopPadding(metrics, typography, typography.maxLines);
     expect(captionTopPadding(metrics, typography, 12)).toBe(clamped);
     expect(clamped).toBeCloseTo(
-      (metrics.captionHeight - typography.maxLines * typography.lineHeight) / 2
+      (metrics.captionHeight -
+        typography.maxLines * typography.lineHeight -
+        speakerTypography(metrics.width).lineHeight) /
+        2
     );
   });
 
@@ -129,23 +134,6 @@ describe("focus transition", () => {
   });
 });
 
-describe("marker font fallback", () => {
-  test("splits out the characters the demo font stamps over", () => {
-    expect(markerRuns("No way! 24 of them?")).toEqual([
-      { marker: true, text: "No way" },
-      { marker: false, text: "!" },
-      { marker: true, text: " " },
-      { marker: false, text: "24" },
-      { marker: true, text: " of them" },
-      { marker: false, text: "?" },
-    ]);
-    expect(markerRuns("That is green")).toEqual([
-      { marker: true, text: "That is green" },
-    ]);
-    expect(markerRuns("")).toEqual([]);
-  });
-});
-
 describe("column pile", () => {
   const { step, peek } = columnMetrics(150);
   const screenY = (scrollY, index) =>
@@ -195,9 +183,9 @@ describe("column pile", () => {
 
 describe("captions", () => {
   test("round-trip through their marks", () => {
-    expect(writeCaption("text", "so it goes")).toBe('"so it goes"');
+    expect(writeCaption("text", "so it goes")).toBe("\u201Cso it goes\u201D");
     expect(writeCaption("speaker", "Kurt")).toBe("- Kurt");
-    expect(readCaption("text", '"so it goes"')).toBe("so it goes");
+    expect(readCaption("text", "\u201Cso it goes\u201D")).toBe("so it goes");
     expect(readCaption("speaker", "- Kurt")).toBe("Kurt");
     expect(readCaption("text", writeCaption("text", 'he said "no"'))).toBe(
       'he said "no"'
@@ -205,9 +193,9 @@ describe("captions", () => {
   });
 
   test("read back when an edit removed their marks", () => {
-    expect(readCaption("text", 'so it goes"')).toBe("so it goes");
-    expect(readCaption("text", '"so it goes ')).toBe("so it goes");
-    expect(readCaption("text", '"')).toBe("");
+    expect(readCaption("text", "so it goes\u201D")).toBe("so it goes");
+    expect(readCaption("text", "\u201Cso it goes ")).toBe("so it goes");
+    expect(readCaption("text", "\u201C")).toBe("");
     expect(readCaption("speaker", "-Kurt")).toBe("Kurt");
     expect(readCaption("speaker", "Kurt ")).toBe("Kurt");
   });
@@ -240,5 +228,35 @@ describe("caret placement", () => {
     expect(caretIndexAt(text, lines, { x: -40, y: -10 })).toBe(0);
     expect(caretIndexAt(text, lines, { x: 400, y: 90 })).toBe(15);
     expect(caretIndexAt(text, [], { x: 10, y: 10 })).toBe(15);
+  });
+});
+
+describe("camera viewfinder", () => {
+  const photoRatio = metrics.photoHeight / metrics.photoWidth;
+
+  test("shows the whole 4:3 photo, as large as fits, centred", () => {
+    for (const frame of [
+      { width: 378, height: 702 },
+      { width: 700, height: 500 },
+    ]) {
+      const { preview } = viewfinderLayout(frame);
+      expect(preview.height / preview.width).toBeCloseTo(4 / 3);
+      expect(preview.width).toBeLessThanOrEqual(frame.width);
+      expect(preview.height).toBeLessThanOrEqual(frame.height + 1e-9);
+      expect(
+        preview.width === frame.width ||
+          Math.abs(preview.height - frame.height) < 1e-9
+      ).toBe(true);
+      expect(preview.x * 2 + preview.width).toBeCloseTo(frame.width);
+      expect(preview.y * 2 + preview.height).toBeCloseTo(frame.height);
+    }
+  });
+
+  test("guides the polaroid's crop: full width, a centred band", () => {
+    const { guide, preview } = viewfinderLayout({ width: 378, height: 702 });
+    expect(guide.x).toBe(0);
+    expect(guide.width).toBe(preview.width);
+    expect(guide.height / guide.width).toBeCloseTo(photoRatio);
+    expect(guide.y * 2 + guide.height).toBeCloseTo(preview.height);
   });
 });

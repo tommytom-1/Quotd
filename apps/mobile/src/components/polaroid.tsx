@@ -2,7 +2,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
 import type { ComponentRef, Ref } from "react";
-import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import type {
   GestureResponderEvent,
   HostInstance,
@@ -16,11 +16,8 @@ import {
   captionTopPadding,
   caretIndexAt,
   expandedHeight,
-  MARKER_FONT,
-  markerRuns,
   mix,
   polaroidMetrics,
-  progressBetween,
   quoteTypography,
   readCaption,
   speakerTypography,
@@ -29,8 +26,6 @@ import {
 import type { CaptionField } from "@/lib/polaroid";
 import { gradientForId } from "@/lib/quote-utils";
 import type { QuoteRecord } from "@/lib/types";
-
-const paperGrain = require("@/assets/images/paper-grain.png");
 
 type TextLines = TextLayoutEvent["nativeEvent"]["lines"];
 
@@ -45,7 +40,7 @@ export interface PolaroidFocus {
   /** 0 on the wall, 1 once the polaroid is focused. */
   progress: SharedValue<number>;
   /** Reports the focused height once the full quote has been measured. */
-  onMeasured: (height: number) => void;
+  onMeasured?: (height: number) => void;
   /** Lets a tap on the quote or its speaker edit it in place. */
   editing?: PolaroidEditing;
 }
@@ -107,45 +102,32 @@ export function Polaroid({
   const paperStyle = useAnimatedStyle(() =>
     progress ? { height: mix(metrics.height, fullHeight, progress.value) } : {}
   );
-  const speakerStyle = useAnimatedStyle(() =>
-    progress ? { opacity: progressBetween(progress.value, 0.55, 1) } : {}
-  );
 
-  const quoteText = (
-    <MarkerText fontSize={typography.fontSize} text={captions.text} />
-  );
-  const speakerText = (
-    <MarkerText fontSize={speaker.fontSize} text={captions.speaker} />
-  );
-  // The marker's tails hang below the last line. Padding gives them room to
-  // be drawn, and the matching margin keeps the layout as it was.
-  const tailRoom = typography.fontSize * TAIL_ROOM;
+  const quoteText = captions.text;
+  const speakerText = captions.speaker;
   const quoteStyle = [
     styles.quote,
-    {
-      fontSize: typography.fontSize,
-      lineHeight: typography.lineHeight,
-      marginBottom: -tailRoom,
-      paddingBottom: tailRoom,
-    },
+    { fontSize: typography.fontSize, lineHeight: typography.lineHeight },
   ];
 
   return (
-    <View style={[!flat && styles.shadow, { width }]}>
+    <View
+      style={[!flat && styles.shadow, { borderRadius: metrics.radius, width }]}
+    >
       <Animated.View
         ref={paperRef}
         collapsable={false}
-        style={[styles.paper, { height: metrics.height, width }, paperStyle]}
+        style={[
+          styles.paper,
+          { borderRadius: metrics.radius, height: metrics.height, width },
+          paperStyle,
+        ]}
       >
-        <Image
-          contentFit="fill"
-          source={paperGrain}
-          style={StyleSheet.absoluteFill}
-        />
         <View
           style={[
             styles.photo,
             {
+              borderRadius: metrics.photoRadius,
               height: metrics.photoHeight,
               left: metrics.padding,
               top: metrics.padding,
@@ -192,7 +174,7 @@ export function Polaroid({
                 accessibilityHint={canEdit ? "Edits the quote" : undefined}
                 allowFontScaling={false}
                 onLayout={(event) =>
-                  setQuoteHeight(event.nativeEvent.layout.height - tailRoom)
+                  setQuoteHeight(event.nativeEvent.layout.height)
                 }
                 onPress={
                   canEdit ? (event) => beginEditing("text", event) : undefined
@@ -243,7 +225,7 @@ export function Polaroid({
                 onTextLayout={(event) => {
                   lines.current.speaker = event.nativeEvent.lines;
                 }}
-                style={[styles.speaker, speaker, speakerStyle]}
+                style={[styles.speaker, speaker]}
                 suppressHighlighting
               >
                 {speakerText}
@@ -281,6 +263,13 @@ export function Polaroid({
               style={quoteStyle}
             >
               {quoteText}
+            </Text>
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[styles.speaker, speaker]}
+            >
+              {speakerText}
             </Text>
           </View>
         )}
@@ -373,36 +362,12 @@ function useCaptionEditing(quote: QuoteRecord, editing?: PolaroidEditing) {
   };
 }
 
-/** Sets the characters the marker font lacks in the system font instead. */
-function MarkerText({ fontSize, text }: { fontSize: number; text: string }) {
-  return markerRuns(text).map((run, index) =>
-    run.marker ? (
-      run.text
-    ) : (
-      <Text
-        // oxlint-disable-next-line react/no-array-index-key -- Runs never reorder.
-        key={index}
-        style={[styles.fallbackGlyphs, { fontSize: fontSize * 0.78 }]}
-      >
-        {run.text}
-      </Text>
-    )
-  );
-}
-
 const INK = "#161616";
-/** Share of the font size that the marker's tails reach below a line. */
-const TAIL_ROOM = 0.35;
-const PAPER = "#FAFAF8";
+const PAPER = "#FFFFFF";
 
 const styles = StyleSheet.create({
   caption: {
     position: "absolute",
-  },
-  fallbackGlyphs: {
-    fontFamily: Platform.select({ default: "sans-serif", ios: "System" }),
-    fontStyle: "italic",
-    fontWeight: "700",
   },
   input: {
     bottom: 0,
@@ -415,31 +380,35 @@ const styles = StyleSheet.create({
   },
   paper: {
     backgroundColor: PAPER,
-    borderColor: "rgba(0,0,0,0.06)",
+    borderColor: "rgba(0,0,0,0.05)",
+    borderCurve: "continuous",
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
   photo: {
+    borderCurve: "continuous",
     overflow: "hidden",
     position: "absolute",
   },
   quote: {
     color: INK,
-    fontFamily: MARKER_FONT,
-    textAlign: "center",
+    fontWeight: "600",
+    letterSpacing: -0.3,
+    textAlign: "left",
   },
   shadow: {
     backgroundColor: PAPER,
+    borderCurve: "continuous",
     elevation: 5,
     shadowColor: "#000",
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.13,
-    shadowRadius: 12,
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
   },
   speaker: {
-    color: INK,
-    fontFamily: MARKER_FONT,
-    textAlign: "right",
+    color: "#8E8E8A",
+    fontWeight: "500",
+    textAlign: "left",
   },
   wallCaption: {
     justifyContent: "center",

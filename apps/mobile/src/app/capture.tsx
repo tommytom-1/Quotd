@@ -1,16 +1,17 @@
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { BackHandler } from "react-native";
+import { ChevronLeft, X } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BackHandler, Keyboard } from "react-native";
 
 import { CameraStep } from "@/components/capture/camera-step";
-import { PersonStep } from "@/components/capture/person-step";
-import { QuoteTextStep } from "@/components/capture/quote-text-step";
+import { CaptionStep } from "@/components/capture/caption-step";
+import { DevelopingPolaroid } from "@/components/capture/developing-polaroid";
 import { useApp } from "@/context/app-context";
 import { useToast } from "@/context/toast-context";
 import { playSuccessHaptic } from "@/lib/haptics";
 import { rankSpeakers } from "@/lib/quote-utils";
 
-type CaptureStage = "camera" | "quote" | "person";
+type CaptureStage = "camera" | "person" | "quote";
 
 export default function CaptureScreen() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function CaptureScreen() {
   const [quoteText, setQuoteText] = useState("");
   const [speaker, setSpeaker] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const suggestions = useMemo(() => rankSpeakers(quotes), [quotes]);
 
   useEffect(() => {
@@ -30,11 +32,11 @@ export default function CaptureScreen() {
         if (isSaving) {
           return true;
         }
-        if (stage === "person") {
-          setStage("quote");
+        if (stage === "quote") {
+          setStage("person");
           return true;
         }
-        if (stage === "quote") {
+        if (stage === "person") {
           setStage("camera");
           return true;
         }
@@ -44,12 +46,19 @@ export default function CaptureScreen() {
     return () => subscription.remove();
   }, [isSaving, stage]);
 
+  const showWall = useCallback(() => router.dismissTo("/quotes"), [router]);
+
   const close = () => {
     if (router.canGoBack()) {
       router.back();
     } else {
       router.replace("/");
     }
+  };
+
+  const retake = () => {
+    setImageUri(null);
+    setStage("camera");
   };
 
   const save = async () => {
@@ -64,9 +73,9 @@ export default function CaptureScreen() {
         speaker,
         text: quoteText,
       });
+      Keyboard.dismiss();
+      setIsSaved(true);
       await playSuccessHaptic();
-      showToast("Quote saved");
-      router.dismissTo("/quotes");
     } catch (error) {
       console.warn("[quotd-save-quote]", error);
       showToast("Could not save your quote", "error");
@@ -74,37 +83,58 @@ export default function CaptureScreen() {
     }
   };
 
-  if (stage === "quote") {
+  if (stage === "person") {
     return (
-      <QuoteTextStep
-        onBack={() => setStage("camera")}
-        onChangeText={setQuoteText}
-        onContinue={() => setStage("person")}
-        text={quoteText}
+      <CaptionStep
+        imageUri={imageUri}
+        label="Quote from"
+        leading={{ icon: X, label: "Retake photo" }}
+        onChangeText={setSpeaker}
+        onLeading={retake}
+        onSubmit={() => setStage("quote")}
+        placeholder="Their name"
+        submitLabel="Next"
+        suggestions={suggestions}
+        value={speaker}
       />
     );
   }
 
-  if (stage === "person") {
+  if (stage === "quote") {
     return (
-      <PersonStep
-        isSaving={isSaving}
-        name={speaker}
-        onBack={() => setStage("quote")}
-        onChangeName={setSpeaker}
-        onSave={save}
-        suggestions={suggestions}
-      />
+      <>
+        <CaptionStep
+          busy={isSaving}
+          imageUri={imageUri}
+          label={`${speaker.trim()} said`}
+          leading={{ icon: ChevronLeft, label: "Back to who said it" }}
+          multiline
+          onChangeText={setQuoteText}
+          onLeading={() => setStage("person")}
+          onSubmit={save}
+          placeholder="What they said"
+          submitLabel="Save quote"
+          value={quoteText}
+        />
+        {isSaved ? (
+          <DevelopingPolaroid
+            imageUri={imageUri}
+            onDone={showWall}
+            speaker={speaker}
+            text={quoteText}
+          />
+        ) : null}
+      </>
     );
   }
 
   return (
     <CameraStep
-      capturedUri={imageUri}
-      onCaptured={setImageUri}
+      onCaptured={(uri) => {
+        setImageUri(uri);
+        setStage("person");
+      }}
       onClose={close}
-      onContinue={() => setStage("quote")}
-      onRetake={() => setImageUri(null)}
     />
   );
 }

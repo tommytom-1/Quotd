@@ -3,45 +3,30 @@ import type { CameraType } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
-import { Camera, Images, RefreshCw, RotateCcw, X } from "lucide-react-native";
+import { Camera, Images, RotateCcw, X } from "lucide-react-native";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Linking,
   Pressable,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
-import Svg, { Circle } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp } from "@/context/app-context";
 import { useToast } from "@/context/toast-context";
+import { viewfinderLayout } from "@/lib/polaroid";
 
 interface CameraStepProps {
-  capturedUri: string | null;
   onCaptured: (uri: string) => void;
   onClose: () => void;
-  onContinue: () => void;
-  onRetake: () => void;
 }
 
-export function CameraStep({
-  capturedUri,
-  onCaptured,
-  onClose,
-  onContinue,
-  onRetake,
-}: CameraStepProps) {
+export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
   const cameraRef = useRef<CameraView>(null);
   const insets = useSafeAreaInsets();
-  const { height, width } = useWindowDimensions();
   const { palette, resolvedTheme } = useApp();
   const showToast = useToast();
   const [permission, requestPermission] = useCameraPermissions();
@@ -49,6 +34,10 @@ export function CameraStep({
   const [cameraReady, setCameraReady] = useState(false);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   const [isPickingPhoto, setIsPickingPhoto] = useState(false);
+  const [viewfinder, setViewfinder] = useState<{
+    height: number;
+    width: number;
+  } | null>(null);
 
   const choosePhoto = async () => {
     if (isPickingPhoto) {
@@ -105,486 +94,303 @@ export function CameraStep({
     await requestPermission();
   };
 
-  if (capturedUri) {
-    const previewHeight = Math.min(height * 0.69, 650);
-    return (
-      <View
-        style={[styles.confirmScreen, { backgroundColor: palette.background }]}
-      >
-        <StatusBar style="light" />
-        <View style={[styles.preview, { height: previewHeight }]}>
-          <Image source={{ uri: capturedUri }} style={styles.fill} />
-          <Pressable
-            accessibilityLabel="Close capture"
-            onPress={onClose}
-            style={({ pressed }) => [
-              styles.frostedButton,
-              { left: 18, position: "absolute", top: insets.top + 12 },
-              pressed && styles.controlPressed,
-            ]}
-          >
-            <X color="#FFFFFF" size={17} strokeWidth={2.1} />
-          </Pressable>
-        </View>
-        <View style={styles.confirmActions}>
-          <Pressable
-            onPress={onContinue}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              { backgroundColor: palette.inverseSurface },
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text style={[styles.primaryText, { color: palette.inverseText }]}>
-              Quote it
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={onRetake}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              { backgroundColor: palette.surfaceMuted },
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <RefreshCw
-              color={palette.textSecondary}
-              size={15}
-              strokeWidth={1.8}
-            />
-            <Text
-              style={[styles.secondaryText, { color: palette.textSecondary }]}
-            >
-              Retake it
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+  const statusBar = (
+    <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
+  );
 
   if (!permission || !permission.granted) {
     return (
-      <SafeAreaView
-        edges={["top", "bottom"]}
+      <View
         style={[
-          styles.permissionScreen,
-          { backgroundColor: palette.background },
+          styles.screen,
+          {
+            backgroundColor: palette.background,
+            paddingBottom: insets.bottom + 16,
+            paddingTop: insets.top + 4,
+          },
         ]}
       >
-        <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
-        <Pressable
-          accessibilityLabel="Close capture"
-          onPress={onClose}
-          style={[styles.permissionClose, { backgroundColor: palette.surface }]}
+        {statusBar}
+        <View
+          style={[
+            styles.viewfinder,
+            styles.permission,
+            { backgroundColor: palette.surface },
+          ]}
         >
-          <X color={palette.textSecondary} size={17} strokeWidth={2} />
-        </Pressable>
-
-        <View style={styles.permissionContent}>
-          <View
-            style={[
-              styles.cameraIcon,
-              { backgroundColor: palette.surfaceMuted },
-            ]}
+          <Pressable
+            accessibilityLabel="Close camera"
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={onClose}
+            style={({ pressed }) => [styles.close, pressed && styles.pressed]}
           >
-            {permission ? (
-              <Camera color={palette.textMuted} size={27} strokeWidth={1.45} />
-            ) : (
-              <ActivityIndicator color={palette.textMuted} />
-            )}
-          </View>
+            <X color={palette.text} size={28} strokeWidth={1.8} />
+          </Pressable>
+          {permission ? (
+            <Camera color={palette.textMuted} size={30} strokeWidth={1.5} />
+          ) : (
+            <ActivityIndicator color={palette.textMuted} />
+          )}
           <Text style={[styles.permissionTitle, { color: palette.text }]}>
-            Frame the moment.
+            Frame the moment
           </Text>
           <Text style={[styles.permissionCopy, { color: palette.textMuted }]}>
-            Use your camera or choose an existing photo.
+            Use your camera, or choose a photo you already have.
           </Text>
-
           <View style={styles.permissionActions}>
             <Pressable
+              accessibilityRole="button"
               disabled={!permission}
               onPress={askForCamera}
               style={({ pressed }) => [
-                styles.primaryButton,
+                styles.pill,
                 { backgroundColor: palette.inverseSurface },
-                !permission && styles.disabled,
-                pressed && styles.buttonPressed,
+                pressed && styles.pressed,
               ]}
             >
-              <Camera color={palette.inverseText} size={16} strokeWidth={1.9} />
-              <Text
-                style={[styles.primaryText, { color: palette.inverseText }]}
-              >
+              <Text style={[styles.pillText, { color: palette.inverseText }]}>
                 {permission?.canAskAgain === false
                   ? "Open camera settings"
                   : "Enable camera"}
               </Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
               disabled={isPickingPhoto}
               onPress={choosePhoto}
               style={({ pressed }) => [
-                styles.secondaryButton,
-                { backgroundColor: palette.surface },
-                pressed && styles.buttonPressed,
+                styles.pill,
+                { backgroundColor: palette.surfaceMuted },
+                pressed && styles.pressed,
               ]}
             >
-              <Images
-                color={palette.textSecondary}
-                size={16}
-                strokeWidth={1.8}
-              />
-              <Text
-                style={[styles.secondaryText, { color: palette.textSecondary }]}
-              >
+              <Text style={[styles.pillText, { color: palette.text }]}>
                 Choose a photo
               </Text>
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  const stageWidth = width - STAGE_INSET * 2;
+  const layout = viewfinder ? viewfinderLayout(viewfinder) : null;
 
   return (
-    <View style={styles.cameraScreen}>
-      <StatusBar style="light" />
-      <View style={[styles.cameraHeader, { marginTop: insets.top - 5 }]}>
-        <Text accessibilityRole="header" style={styles.cameraTitle}>
-          Camera
-        </Text>
-        <Pressable
-          accessibilityLabel="Switch camera"
-          onPress={() => {
-            setCameraReady(false);
-            setFacing((current) => (current === "back" ? "front" : "back"));
-          }}
-          style={({ pressed }) => [
-            styles.flipButton,
-            pressed && styles.controlPressed,
-          ]}
-        >
-          <RotateCcw color="#C9C9C4" size={20} strokeWidth={1.8} />
-        </Pressable>
-      </View>
-
-      <View style={styles.cameraBody}>
+    <View
+      style={[
+        styles.screen,
+        {
+          backgroundColor: palette.background,
+          paddingBottom: insets.bottom + BELOW_VIEWFINDER,
+          paddingTop: insets.top + 4,
+        },
+      ]}
+    >
+      {statusBar}
+      <View style={styles.frame}>
         <View
-          style={[
-            styles.cameraStage,
-            { height: stageWidth * PHOTO_RATIO, width: stageWidth },
-          ]}
+          onLayout={(event) => setViewfinder(event.nativeEvent.layout)}
+          style={[styles.viewfinder, { backgroundColor: "#111111" }]}
         >
-          <CameraView
-            ref={cameraRef}
-            active
-            facing={facing}
-            mirror={facing === "front"}
-            mode="picture"
-            onCameraReady={() => setCameraReady(true)}
-            onMountError={(event) => {
+          {/* Sized to the photo itself, so nothing outside it is cropped
+              away unseen; the guide inside marks what the polaroid keeps. */}
+          {layout ? (
+            <View
+              style={{
+                height: layout.preview.height,
+                left: layout.preview.x,
+                position: "absolute",
+                top: layout.preview.y,
+                width: layout.preview.width,
+              }}
+            >
+              <CameraView
+                ref={cameraRef}
+                active
+                facing={facing}
+                mirror={facing === "front"}
+                mode="picture"
+                onCameraReady={() => setCameraReady(true)}
+                onMountError={(event) => {
+                  setCameraReady(false);
+                  console.warn("[quotd-camera-mount]", event.message);
+                  showToast("The camera could not start", "error");
+                }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.guide,
+                  {
+                    height: layout.guide.height,
+                    left: layout.guide.x,
+                    top: layout.guide.y,
+                    width: layout.guide.width,
+                  },
+                ]}
+              />
+            </View>
+          ) : null}
+          <Pressable
+            accessibilityLabel="Close camera"
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={onClose}
+            style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+          >
+            <X color="#FFFFFF" size={28} strokeWidth={1.8} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Switch camera"
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={() => {
               setCameraReady(false);
-              console.warn("[quotd-camera-mount]", event.message);
-              showToast("The camera could not start", "error");
+              setFacing((current) => (current === "back" ? "front" : "back"));
             }}
-            style={styles.fill}
-          />
+            style={({ pressed }) => [styles.flip, pressed && styles.pressed]}
+          >
+            <RotateCcw color="#FFFFFF" size={24} strokeWidth={1.8} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Choose from photo library"
+            accessibilityRole="button"
+            disabled={isPickingPhoto}
+            hitSlop={8}
+            onPress={choosePhoto}
+            style={({ pressed }) => [styles.library, pressed && styles.pressed]}
+          >
+            <Images color="#FFFFFF" size={24} strokeWidth={1.8} />
+          </Pressable>
         </View>
-      </View>
-
-      <View
-        style={[styles.cameraControls, { marginBottom: insets.bottom + 28 }]}
-      >
-        <Pressable
-          accessibilityLabel="Close camera"
-          accessibilityRole="button"
-          hitSlop={12}
-          onPress={onClose}
-          style={({ pressed }) => [
-            styles.cancelButton,
-            pressed && styles.controlPressed,
-          ]}
-        >
-          <Text style={styles.cancelText}>Cancel</Text>
-        </Pressable>
+        {/* The shutter sits in a bite taken out of the viewfinder's edge. */}
+        <View
+          pointerEvents="none"
+          style={[styles.notch, { backgroundColor: palette.background }]}
+        />
         <Pressable
           accessibilityLabel="Take photo"
+          accessibilityRole="button"
           disabled={!cameraReady || isTakingPhoto}
           onPress={takePhoto}
           style={({ pressed }) => [
-            styles.shutterOuter,
+            styles.shutter,
+            { backgroundColor: palette.background },
             (!cameraReady || isTakingPhoto) && styles.disabled,
             pressed && styles.shutterPressed,
           ]}
-        >
-          <SpectrumRing />
-          <View style={styles.shutterInner} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Choose from photo library"
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={choosePhoto}
-          style={({ pressed }) => [
-            styles.libraryButton,
-            pressed && styles.controlPressed,
-          ]}
-        >
-          <View style={styles.libraryPolaroid}>
-            <View style={styles.libraryPhoto}>
-              <Images color="#FAFAF8" size={20} strokeWidth={1.8} />
-            </View>
-          </View>
-        </Pressable>
+        />
       </View>
     </View>
   );
 }
 
-/** The five-colour stripe of instant film, drawn as a ring. */
-function SpectrumRing() {
-  const radius = (SHUTTER_SIZE - RING_WIDTH) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const segment = circumference / SPECTRUM.length;
-  return (
-    <Svg
-      height={SHUTTER_SIZE}
-      style={StyleSheet.absoluteFill}
-      width={SHUTTER_SIZE}
-    >
-      {SPECTRUM.map((color, index) => (
-        <Circle
-          cx={SHUTTER_SIZE / 2}
-          cy={SHUTTER_SIZE / 2}
-          fill="none"
-          key={color}
-          origin={`${SHUTTER_SIZE / 2}, ${SHUTTER_SIZE / 2}`}
-          r={radius}
-          rotation={-90 + (360 / SPECTRUM.length) * index}
-          stroke={color}
-          strokeDasharray={[segment, circumference - segment]}
-          strokeWidth={RING_WIDTH}
-        />
-      ))}
-    </Svg>
-  );
-}
-
-const SPECTRUM = ["#E5482F", "#F29A2E", "#F4D03F", "#4FA560", "#3B7DD8"];
-const SHUTTER_SIZE = 88;
-const RING_WIDTH = 5;
-
-/** Matches the polaroid's photo area, so the stage shows what it keeps. */
-const PHOTO_RATIO = 1.03;
-const STAGE_INSET = 10;
-const SIDE_WIDTH = 72;
+const SHUTTER_SIZE = 76;
+/** The bite around the shutter, wider than it by the gap between them. */
+const NOTCH_SIZE = SHUTTER_SIZE + 16;
+const BELOW_VIEWFINDER = SHUTTER_SIZE / 2 + 34;
 
 const styles = StyleSheet.create({
-  buttonPressed: {
-    opacity: 0.74,
-    transform: [{ scale: 0.985 }],
-  },
-  cameraBody: {
-    alignItems: "center",
-    alignSelf: "stretch",
-    flex: 1,
-    justifyContent: "center",
-    // Lifts the frame above true centre, towards the heading.
-    paddingBottom: 56,
-  },
-  cameraControls: {
-    alignItems: "center",
-    alignSelf: "stretch",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 30,
-  },
-  cameraIcon: {
-    alignItems: "center",
-    borderRadius: 34,
-    height: 68,
-    justifyContent: "center",
-    marginBottom: 22,
-    width: 68,
-  },
-  cameraScreen: {
-    alignItems: "center",
-    backgroundColor: "#000000",
-    flex: 1,
-  },
-  cameraHeader: {
-    alignItems: "center",
-    alignSelf: "stretch",
-    height: 44,
-    justifyContent: "center",
-  },
-  cameraStage: {
-    backgroundColor: "#111111",
-    borderColor: "rgba(255,255,255,0.7)",
-    borderCurve: "continuous",
-    borderRadius: 30,
-    borderWidth: 2.5,
-    overflow: "hidden",
-  },
-  cameraTitle: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    lineHeight: 22,
-    textAlign: "center",
-  },
-  confirmActions: {
-    flex: 1,
-    gap: 10,
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  confirmScreen: {
-    flex: 1,
-    padding: 6,
-  },
-  controlPressed: {
-    opacity: 0.68,
-    transform: [{ scale: 0.91 }],
+  close: {
+    left: 20,
+    position: "absolute",
+    top: 20,
   },
   disabled: {
-    opacity: 0.42,
+    opacity: 0.4,
   },
-  fill: {
-    height: "100%",
-    width: "100%",
-  },
-  flipButton: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
+  flip: {
     position: "absolute",
-    right: 14,
-    width: 44,
+    right: 20,
+    top: 22,
   },
-  frostedButton: {
+  frame: {
+    flex: 1,
+    marginHorizontal: 12,
+  },
+  // Marks the part of the photo that the polaroid keeps.
+  guide: {
+    borderColor: "rgba(255,255,255,0.45)",
+    borderWidth: 1,
+    position: "absolute",
+  },
+  library: {
     alignItems: "center",
-    backgroundColor: "rgba(25,25,25,0.4)",
-    borderColor: "rgba(255,255,255,0.24)",
-    borderRadius: 21,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 42,
+    backgroundColor: "rgba(20,20,20,0.35)",
+    borderRadius: 26,
+    bottom: 18,
+    height: 52,
     justifyContent: "center",
-    width: 42,
+    left: 18,
+    position: "absolute",
+    width: 52,
+  },
+  notch: {
+    alignSelf: "center",
+    borderRadius: NOTCH_SIZE / 2,
+    bottom: -NOTCH_SIZE / 2,
+    height: NOTCH_SIZE,
+    position: "absolute",
+    width: NOTCH_SIZE,
+  },
+  permission: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
   },
   permissionActions: {
+    alignSelf: "stretch",
     gap: 10,
-    marginTop: 30,
-    maxWidth: 390,
-    width: "100%",
-  },
-  permissionClose: {
-    alignItems: "center",
-    borderRadius: 20,
-    height: 40,
-    justifyContent: "center",
-    marginLeft: 20,
-    marginTop: 8,
-    width: 40,
-  },
-  permissionContent: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    paddingBottom: 50,
-    paddingHorizontal: 24,
+    marginTop: 28,
   },
   permissionCopy: {
     fontSize: 15,
-    lineHeight: 22,
-    marginTop: 12,
-    maxWidth: 320,
+    lineHeight: 21,
+    marginTop: 8,
     textAlign: "center",
   },
-  permissionScreen: {
+  permissionTitle: {
+    fontSize: 24,
+    fontWeight: "600",
+    letterSpacing: -0.6,
+    marginTop: 18,
+  },
+  pill: {
+    alignItems: "center",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 54,
+  },
+  pillText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  pressed: {
+    opacity: 0.6,
+  },
+  screen: {
     flex: 1,
   },
-  permissionTitle: {
-    fontSize: 26,
-    fontWeight: "600",
-    letterSpacing: -0.9,
-    lineHeight: 32,
-  },
-  preview: {
-    borderRadius: 38,
-    overflow: "hidden",
-  },
-  primaryButton: {
-    alignItems: "center",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 54,
-    paddingHorizontal: 20,
-  },
-  primaryText: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    alignItems: "center",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 54,
-    paddingHorizontal: 20,
-  },
-  secondaryText: {
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  cancelButton: {
-    justifyContent: "center",
-    minHeight: 44,
-    width: SIDE_WIDTH,
-  },
-  cancelText: {
-    color: "#E4E4DF",
-    fontSize: 17,
-  },
-  libraryButton: {
-    alignItems: "flex-end",
-    justifyContent: "center",
-    minHeight: 60,
-    width: SIDE_WIDTH,
-  },
-  libraryPhoto: {
-    alignItems: "center",
-    backgroundColor: "#1F1F1F",
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  libraryPolaroid: {
-    backgroundColor: "#FAFAF8",
-    paddingBottom: 13,
-    paddingHorizontal: 4,
-    paddingTop: 4,
-    transform: [{ rotate: "6deg" }],
-  },
-  shutterInner: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 33,
-    height: 66,
-    width: 66,
-  },
-  shutterOuter: {
-    alignItems: "center",
+  shutter: {
+    alignSelf: "center",
+    borderColor: "#C2AFA4",
+    borderRadius: SHUTTER_SIZE / 2,
+    borderWidth: 3,
+    bottom: -SHUTTER_SIZE / 2,
     height: SHUTTER_SIZE,
-    justifyContent: "center",
+    position: "absolute",
     width: SHUTTER_SIZE,
   },
   shutterPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.94 }],
+    transform: [{ scale: 0.92 }],
+  },
+  viewfinder: {
+    borderCurve: "continuous",
+    borderRadius: 34,
+    flex: 1,
+    overflow: "hidden",
   },
 });

@@ -1,5 +1,4 @@
 import "react-native-gesture-handler";
-import { useFonts } from "expo-font";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -9,7 +8,6 @@ import {
 
 import { AppProvider, useApp } from "@/context/app-context";
 import { ToastProvider } from "@/context/toast-context";
-import { MARKER_FONT } from "@/lib/polaroid";
 
 export default function RootLayout() {
   return (
@@ -25,9 +23,6 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { palette, resolvedTheme } = useApp();
-  const [fontsLoaded, fontError] = useFonts({
-    [MARKER_FONT]: require("@/assets/fonts/Colastine.otf"),
-  });
   const baseTheme = resolvedTheme === "dark" ? DarkTheme : DefaultTheme;
   const navigationTheme = {
     ...baseTheme,
@@ -39,12 +34,6 @@ function RootNavigator() {
       text: palette.text,
     },
   };
-
-  // Polaroid captions are measured, so wait for the marker font. A failed load
-  // falls back to the system font instead of blocking the app.
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
 
   return (
     <ThemeProvider value={navigationTheme}>
