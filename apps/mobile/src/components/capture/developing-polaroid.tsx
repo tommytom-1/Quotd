@@ -12,6 +12,7 @@ import Animated, {
 import { DraftPolaroid } from "@/components/capture/draft-polaroid";
 import { useApp } from "@/context/app-context";
 import { polaroidMetrics } from "@/lib/polaroid";
+import type { QuoteAlign, QuoteFont } from "@/lib/types";
 
 /** How long the print takes to develop before handing back to the wall. */
 const DURATION = 2000;
@@ -23,11 +24,15 @@ const FILM = "#F4F4F2";
  * photo develops, from a milky wash to full colour, like an instant print.
  */
 export function DevelopingPolaroid({
+  align,
+  font,
   imageUri,
   onDone,
   speaker,
   text,
 }: {
+  align?: QuoteAlign;
+  font?: QuoteFont;
   imageUri: string | null;
   onDone: () => void;
   speaker: string;
@@ -80,6 +85,8 @@ export function DevelopingPolaroid({
       <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
       <Animated.View style={printStyle}>
         <DraftPolaroid
+          align={align}
+          font={font}
           imageUri={imageUri}
           speaker={speaker}
           text={text}
@@ -107,7 +114,6 @@ export function DevelopingPolaroid({
 const styles = StyleSheet.create({
   film: {
     backgroundColor: FILM,
-    borderCurve: "continuous",
     position: "absolute",
   },
   screen: {

@@ -4,14 +4,11 @@ import {
   captionCaretRange,
   captionTopPadding,
   caretIndexAt,
-  columnMetrics,
   EXIT_END,
   exitPose,
   exitProgress,
   expandedHeight,
   focusOrigin,
-  PILE_DEPTH,
-  pilePose,
   polaroidMetrics,
   polaroidPlacement,
   quoteTypography,
@@ -134,53 +131,6 @@ describe("focus transition", () => {
   });
 });
 
-describe("column pile", () => {
-  const { step, peek } = columnMetrics(150);
-  const screenY = (scrollY, index) =>
-    index * step - scrollY + pilePose(scrollY, index, step, peek).translateY;
-
-  test("leaves an unscrolled column alone", () => {
-    expect(pilePose(0, 0, step, peek)).toEqual({
-      opacity: 1,
-      shadow: 1,
-      translateY: 0,
-    });
-    expect(pilePose(-40, 2, step, peek).translateY).toBe(0);
-  });
-
-  test("stops polaroids at the top, each peeking above the next", () => {
-    const scrollY = 2 * step;
-    expect(screenY(scrollY, 0)).toBeCloseTo(0, 10);
-    expect(screenY(scrollY, 1)).toBeCloseTo(peek, 10);
-    expect(screenY(scrollY, 2)).toBeCloseTo(2 * peek, 10);
-    expect(screenY(scrollY, 3)).toBeCloseTo(2 * peek + step, 10);
-  });
-
-  test("moves continuously as a polaroid joins the pile", () => {
-    expect(screenY(step - 0.001, 1)).toBeCloseTo(screenY(step + 0.001, 1), 2);
-  });
-
-  test("keeps the pile from growing past its depth", () => {
-    const scrollY = 9 * step;
-    expect(screenY(scrollY, 9)).toBeCloseTo(PILE_DEPTH * peek, 10);
-    expect(screenY(scrollY, 8)).toBeCloseTo((PILE_DEPTH - 1) * peek, 10);
-    expect(screenY(scrollY, 6)).toBeCloseTo(0, 10);
-    expect(screenY(scrollY, 2)).toBeCloseTo(0, 10);
-    expect(pilePose(scrollY, 6, step, peek).opacity).toBe(1);
-    expect(pilePose(scrollY, 2, step, peek).opacity).toBe(0);
-    expect(pilePose(scrollY + step / 2, 6, step, peek).opacity).toBeCloseTo(
-      0.5,
-      10
-    );
-  });
-
-  test("drops the shadow of a covered polaroid", () => {
-    expect(pilePose(step / 2, 0, step, peek).shadow).toBeCloseTo(0.5, 10);
-    expect(pilePose(2 * step, 0, step, peek).shadow).toBe(0);
-    expect(pilePose(2 * step, 2, step, peek).shadow).toBe(1);
-  });
-});
-
 describe("captions", () => {
   test("round-trip through their marks", () => {
     expect(writeCaption("text", "so it goes")).toBe("\u201Cso it goes\u201D");
@@ -234,22 +184,31 @@ describe("caret placement", () => {
 describe("camera viewfinder", () => {
   const photoRatio = metrics.photoHeight / metrics.photoWidth;
 
-  test("shows the whole 4:3 photo, as large as fits, centred", () => {
-    for (const frame of [
+  test("fills the card with the whole 16:9 photo, as large as fits", () => {
+    for (const area of [
       { width: 378, height: 702 },
+      { width: 378, height: 600 },
       { width: 700, height: 500 },
     ]) {
-      const { preview } = viewfinderLayout(frame);
-      expect(preview.height / preview.width).toBeCloseTo(4 / 3);
-      expect(preview.width).toBeLessThanOrEqual(frame.width);
-      expect(preview.height).toBeLessThanOrEqual(frame.height + 1e-9);
+      const { card, preview } = viewfinderLayout(area);
+      expect(preview.height / preview.width).toBeCloseTo(16 / 9);
+      expect(card).toEqual({ width: preview.width, height: preview.height });
+      expect(card.width).toBeLessThanOrEqual(area.width + 1e-9);
+      expect(card.height).toBeLessThanOrEqual(area.height + 1e-9);
       expect(
-        preview.width === frame.width ||
-          Math.abs(preview.height - frame.height) < 1e-9
+        Math.abs(card.width - area.width) < 1e-9 ||
+          Math.abs(card.height - area.height) < 1e-9
       ).toBe(true);
-      expect(preview.x * 2 + preview.width).toBeCloseTo(frame.width);
-      expect(preview.y * 2 + preview.height).toBeCloseTo(frame.height);
     }
+  });
+
+  test("keeps the inset all round the photo", () => {
+    const { card, preview } = viewfinderLayout({ width: 378, height: 702 }, 10);
+    expect(preview.x).toBe(10);
+    expect(preview.y).toBe(10);
+    expect(card.width).toBeCloseTo(preview.width + 20);
+    expect(card.height).toBeCloseTo(preview.height + 20);
+    expect(preview.height / preview.width).toBeCloseTo(16 / 9);
   });
 
   test("guides the polaroid's crop: full width, a centred band", () => {
@@ -258,5 +217,9 @@ describe("camera viewfinder", () => {
     expect(guide.width).toBe(preview.width);
     expect(guide.height / guide.width).toBeCloseTo(photoRatio);
     expect(guide.y * 2 + guide.height).toBeCloseTo(preview.height);
+    // Rounded like the photo on a polaroid of the same width.
+    expect(guide.radius / guide.width).toBeCloseTo(
+      metrics.photoRadius / metrics.photoWidth
+    );
   });
 });

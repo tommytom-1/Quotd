@@ -1,6 +1,11 @@
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
-import { Check } from "lucide-react-native";
+import {
+  Check,
+  TextAlignCenter,
+  TextAlignEnd,
+  TextAlignStart,
+} from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
@@ -16,11 +21,25 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DraftPolaroid } from "@/components/capture/draft-polaroid";
 import { useApp } from "@/context/app-context";
+import { HANDS, polaroidMetrics } from "@/lib/polaroid";
+import type { QuoteAlign, QuoteFont } from "@/lib/types";
+
+/** The quote as it will be kept, and the controls that style its caption. */
+export interface CaptionPolaroid {
+  align: QuoteAlign;
+  font: QuoteFont;
+  onAlign: (align: QuoteAlign) => void;
+  onFont: (font: QuoteFont) => void;
+  speaker: string;
+}
 
 /**
  * One step of writing a quote: the photo fills the top of the screen and a
  * card above the keyboard holds a single field and the button that confirms it.
+ * Given `polaroid`, the photo gives way to the finished polaroid, which takes
+ * each letter as it is typed, above a row that sets its lettering.
  */
 export function CaptionStep({
   busy = false,
@@ -32,6 +51,7 @@ export function CaptionStep({
   onLeading,
   onSubmit,
   placeholder,
+  polaroid,
   suggestions = [],
   submitLabel,
   value,
@@ -46,6 +66,7 @@ export function CaptionStep({
   onLeading: () => void;
   onSubmit: () => void;
   placeholder: string;
+  polaroid?: CaptionPolaroid;
   /** Values that fill the field in one tap. */
   suggestions?: string[];
   submitLabel: string;
@@ -53,159 +74,354 @@ export function CaptionStep({
 }) {
   const insets = useSafeAreaInsets();
   const { palette, resolvedTheme } = useApp();
-  const keyboardShown = useKeyboardShown();
+  const keyboardShown = useKeyboardShown(insets.bottom);
   const canSubmit = Boolean(value.trim()) && !busy;
   const LeadingIcon = leading.icon;
+  const [stage, setStage] = useState<{ height: number; width: number } | null>(
+    null,
+  );
+  // As large as the room above the keyboard allows, clear of the back button.
+  const polaroidWidth = stage
+    ? Math.max(
+        120,
+        Math.min(
+          300,
+          stage.width - 2 * (LEADING_SIZE + 16),
+          (stage.height - 20) / polaroidMetrics(1).height,
+        ),
+      )
+    : 0;
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={[
-        styles.screen,
-        {
-          backgroundColor: palette.background,
-          paddingBottom: keyboardShown ? 8 : insets.bottom + 12,
-          paddingTop: insets.top + 4,
-        },
-      ]}
+      style={[styles.screen, { backgroundColor: palette.background }]}
     >
-      <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
-      <View style={[styles.photo, { backgroundColor: palette.surfaceMuted }]}>
-        {imageUri ? (
-          <Image
-            accessibilityIgnoresInvertColors
-            contentFit="cover"
-            source={{ uri: imageUri }}
-            style={StyleSheet.absoluteFill}
-          />
-        ) : null}
-        <Pressable
-          accessibilityLabel={leading.label}
-          accessibilityRole="button"
-          disabled={busy}
-          hitSlop={12}
-          onPress={onLeading}
-          style={({ pressed }) => [styles.leading, pressed && styles.pressed]}
-        >
-          <LeadingIcon color="#FFFFFF" size={28} strokeWidth={1.8} />
-        </Pressable>
-      </View>
+      {/* The keyboard's room is padding on the view above, which replaces any
+          of its own; the gap to the keyboard or the screen's edge goes here. */}
+      <View
+        style={[
+          styles.screen,
+          {
+            paddingBottom: keyboardShown ? 12 : insets.bottom + 14,
+            paddingTop: insets.top + 4,
+          },
+        ]}
+      >
+        <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
+        {polaroid ? (
+          <View
+            onLayout={(event) => setStage(event.nativeEvent.layout)}
+            style={styles.stage}
+          >
+            {stage ? (
+              <DraftPolaroid
+                align={polaroid.align}
+                font={polaroid.font}
+                imageUri={imageUri}
+                speaker={polaroid.speaker.trim()}
+                text={value.trim()}
+                width={polaroidWidth}
+              />
+            ) : null}
+            <Pressable
+              accessibilityLabel={leading.label}
+              accessibilityRole="button"
+              disabled={busy}
+              hitSlop={12}
+              onPress={onLeading}
+              style={({ pressed }) => [
+                styles.leading,
+                styles.leadingPlain,
+                { backgroundColor: palette.surface },
+                pressed && styles.pressed,
+              ]}
+            >
+              <LeadingIcon color={palette.text} size={26} strokeWidth={1.8} />
+            </Pressable>
+          </View>
+        ) : (
+          <View
+            style={[styles.photo, { backgroundColor: palette.surfaceMuted }]}
+          >
+            {imageUri ? (
+              <Image
+                accessibilityIgnoresInvertColors
+                contentFit="cover"
+                source={{ uri: imageUri }}
+                style={StyleSheet.absoluteFill}
+              />
+            ) : null}
+            <Pressable
+              accessibilityLabel={leading.label}
+              accessibilityRole="button"
+              disabled={busy}
+              hitSlop={12}
+              onPress={onLeading}
+              style={({ pressed }) => [
+                styles.leading,
+                pressed && styles.pressed,
+              ]}
+            >
+              <LeadingIcon color="#FFFFFF" size={28} strokeWidth={1.8} />
+            </Pressable>
+          </View>
+        )}
 
-      {suggestions.length > 0 ? (
-        <ScrollView
-          contentContainerStyle={styles.suggestions}
-          horizontal
-          keyboardShouldPersistTaps="always"
-          showsHorizontalScrollIndicator={false}
-          style={styles.suggestionsRow}
-        >
-          {suggestions.map((suggestion) => {
-            const selected = value === suggestion;
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                disabled={busy}
-                key={suggestion}
-                onPress={() => onChangeText(suggestion)}
-                style={({ pressed }) => [
-                  styles.suggestion,
-                  {
-                    backgroundColor: selected
-                      ? palette.inverseSurface
-                      : palette.surface,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.suggestionText,
-                    { color: selected ? palette.inverseText : palette.text },
+        {polaroid ? (
+          <View style={styles.tools}>
+            <View style={[styles.aligns, { backgroundColor: palette.surface }]}>
+              {ALIGNS.map(({ align, icon: AlignIcon, label: alignLabel }) => {
+                const selected = polaroid.align === align;
+                return (
+                  <Pressable
+                    accessibilityLabel={alignLabel}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    disabled={busy}
+                    hitSlop={4}
+                    key={align}
+                    onPress={() => polaroid.onAlign(align)}
+                    style={[
+                      styles.align,
+                      selected && { backgroundColor: palette.inverseSurface },
+                    ]}
+                  >
+                    <AlignIcon
+                      color={selected ? palette.inverseText : palette.text}
+                      size={18}
+                      strokeWidth={2}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.fonts}
+              horizontal
+              keyboardShouldPersistTaps="always"
+              showsHorizontalScrollIndicator={false}
+            >
+              {FONTS.map((font) => {
+                const hand = HANDS[font];
+                const selected = polaroid.font === font;
+                return (
+                  <Pressable
+                    accessibilityLabel={`${hand.label} lettering`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    disabled={busy}
+                    key={font}
+                    onPress={() => polaroid.onFont(font)}
+                    style={({ pressed }) => [
+                      styles.font,
+                      {
+                        backgroundColor: selected
+                          ? palette.inverseSurface
+                          : palette.surface,
+                      },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      allowFontScaling={false}
+                      style={[
+                        styles.fontText,
+                        {
+                          color: selected ? palette.inverseText : palette.text,
+                          fontFamily: hand.fontFamily,
+                          fontSize: 16 * hand.scale,
+                        },
+                      ]}
+                    >
+                      {hand.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {suggestions.length > 0 ? (
+          <ScrollView
+            contentContainerStyle={styles.suggestions}
+            horizontal
+            keyboardShouldPersistTaps="always"
+            showsHorizontalScrollIndicator={false}
+            style={styles.suggestionsRow}
+          >
+            {suggestions.map((suggestion) => {
+              const selected = value === suggestion;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  disabled={busy}
+                  key={suggestion}
+                  onPress={() => onChangeText(suggestion)}
+                  style={({ pressed }) => [
+                    styles.suggestion,
+                    {
+                      backgroundColor: selected
+                        ? palette.inverseSurface
+                        : palette.surface,
+                    },
+                    pressed && styles.pressed,
                   ]}
                 >
-                  {suggestion}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+                  <Text
+                    style={[
+                      styles.suggestionText,
+                      { color: selected ? palette.inverseText : palette.text },
+                    ]}
+                  >
+                    {suggestion}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
 
-      <View style={[styles.card, { backgroundColor: palette.surface }]}>
-        <View style={styles.field}>
-          <Text
-            numberOfLines={1}
-            style={[styles.label, { color: palette.textMuted }]}
+        <View style={[styles.card, { backgroundColor: palette.surface }]}>
+          <View style={styles.field}>
+            <Text
+              numberOfLines={1}
+              style={[styles.label, { color: palette.textMuted }]}
+            >
+              {label}
+            </Text>
+            <TextInput
+              accessibilityLabel={label}
+              autoCapitalize={multiline ? "sentences" : "words"}
+              autoComplete={multiline ? "off" : "name"}
+              autoCorrect={multiline}
+              autoFocus
+              editable={!busy}
+              keyboardAppearance={resolvedTheme}
+              maxLength={multiline ? 500 : 100}
+              multiline={multiline}
+              onChangeText={(text) =>
+                // A return pressed to leave the previous step can land here.
+                onChangeText(multiline ? text.replace(/^\s+/u, "") : text)
+              }
+              onSubmitEditing={canSubmit ? onSubmit : undefined}
+              placeholder={placeholder}
+              placeholderTextColor={palette.textMuted}
+              returnKeyType={multiline ? "default" : "go"}
+              selectionColor={palette.text}
+              style={[styles.input, { color: palette.text }]}
+              value={value}
+            />
+          </View>
+          <Pressable
+            accessibilityLabel={submitLabel}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canSubmit }}
+            disabled={!canSubmit}
+            onPress={onSubmit}
+            style={({ pressed }) => [
+              styles.submit,
+              {
+                backgroundColor: canSubmit
+                  ? palette.inverseSurface
+                  : palette.surfaceMuted,
+              },
+              pressed && styles.pressed,
+            ]}
           >
-            {label}
-          </Text>
-          <TextInput
-            accessibilityLabel={label}
-            autoCapitalize={multiline ? "sentences" : "words"}
-            autoComplete={multiline ? "off" : "name"}
-            autoCorrect={multiline}
-            autoFocus
-            editable={!busy}
-            keyboardAppearance={resolvedTheme}
-            maxLength={multiline ? 500 : 100}
-            multiline={multiline}
-            onChangeText={(text) =>
-              // A return pressed to leave the previous step can land here.
-              onChangeText(multiline ? text.replace(/^\s+/u, "") : text)
-            }
-            onSubmitEditing={canSubmit ? onSubmit : undefined}
-            placeholder={placeholder}
-            placeholderTextColor={palette.textMuted}
-            returnKeyType={multiline ? "default" : "go"}
-            selectionColor={palette.text}
-            style={[styles.input, { color: palette.text }]}
-            value={value}
-          />
+            <Check
+              color={canSubmit ? palette.inverseText : palette.textMuted}
+              size={22}
+              strokeWidth={2.4}
+            />
+          </Pressable>
         </View>
-        <Pressable
-          accessibilityLabel={submitLabel}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canSubmit }}
-          disabled={!canSubmit}
-          onPress={onSubmit}
-          style={({ pressed }) => [
-            styles.submit,
-            {
-              backgroundColor: canSubmit
-                ? palette.inverseSurface
-                : palette.surfaceMuted,
-            },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Check
-            color={canSubmit ? palette.inverseText : palette.textMuted}
-            size={22}
-            strokeWidth={2.4}
-          />
-        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-function useKeyboardShown() {
+/**
+ * Whether the on-screen keyboard is up. With a hardware keyboard attached the
+ * system still reports one, only with no height above the screen's edge.
+ */
+function useKeyboardShown(bottomInset: number) {
   const [shown, setShown] = useState(false);
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardWillShow", () => setShown(true));
+    const show = Keyboard.addListener("keyboardWillShow", (event) =>
+      setShown(event.endCoordinates.height > bottomInset + 40),
+    );
     const hide = Keyboard.addListener("keyboardWillHide", () =>
-      setShown(false)
+      setShown(false),
     );
     return () => {
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [bottomInset]);
   return shown;
 }
 
+const LEADING_SIZE = 44;
+const FONTS = Object.keys(HANDS) as QuoteFont[];
+const ALIGNS = [
+  { align: "left", icon: TextAlignStart, label: "Align left" },
+  { align: "center", icon: TextAlignCenter, label: "Align centre" },
+  { align: "right", icon: TextAlignEnd, label: "Align right" },
+] as const;
+
 const styles = StyleSheet.create({
+  align: {
+    alignItems: "center",
+    borderRadius: 15,
+    height: 30,
+    justifyContent: "center",
+    width: 34,
+  },
+  aligns: {
+    borderCurve: "continuous",
+    borderRadius: 19,
+    flexDirection: "row",
+    gap: 2,
+    padding: 4,
+  },
+  font: {
+    borderCurve: "continuous",
+    borderRadius: 19,
+    height: 38,
+    justifyContent: "center",
+    paddingHorizontal: 15,
+  },
+  fontText: {
+    lineHeight: 24,
+  },
+  fonts: {
+    gap: 8,
+    paddingRight: 12,
+  },
+  leadingPlain: {
+    alignItems: "center",
+    borderRadius: LEADING_SIZE / 2,
+    height: LEADING_SIZE,
+    justifyContent: "center",
+    left: 12,
+    top: 4,
+    width: LEADING_SIZE,
+  },
+  stage: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  tools: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+    paddingLeft: 12,
+  },
   card: {
     alignItems: "center",
     borderCurve: "continuous",

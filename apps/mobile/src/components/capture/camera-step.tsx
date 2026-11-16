@@ -31,7 +31,13 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
   const showToast = useToast();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>("back");
+  const [lens, setLens] = useState<Lens>("wide");
+  const [hasUltraWide, setHasUltraWide] = useState(false);
+  const lensType = lens === "ultraWide" ? ULTRA_WIDE : WIDE;
   const [cameraReady, setCameraReady] = useState(false);
+  // expo-camera reports ready once, when its session starts, and not again
+  // after the camera is switched; this marks a switch that is still under way.
+  const isSwitchingCamera = useRef(false);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   const [isPickingPhoto, setIsPickingPhoto] = useState(false);
   const [viewfinder, setViewfinder] = useState<{
@@ -123,7 +129,11 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
             accessibilityRole="button"
             hitSlop={12}
             onPress={onClose}
-            style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.close,
+              styles.closePlain,
+              pressed && styles.pressed,
+            ]}
           >
             <X color={palette.text} size={28} strokeWidth={1.8} />
           </Pressable>
@@ -175,7 +185,9 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
     );
   }
 
-  const layout = viewfinder ? viewfinderLayout(viewfinder) : null;
+  const layout = viewfinder
+    ? viewfinderLayout(viewfinder, PREVIEW_INSET)
+    : null;
 
   return (
     <View
@@ -189,105 +201,180 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
       ]}
     >
       {statusBar}
-      <View style={styles.frame}>
-        <View
-          onLayout={(event) => setViewfinder(event.nativeEvent.layout)}
-          style={[styles.viewfinder, { backgroundColor: "#111111" }]}
-        >
-          {/* Sized to the photo itself, so nothing outside it is cropped
+      <View
+        onLayout={(event) => setViewfinder(event.nativeEvent.layout)}
+        style={styles.area}
+      >
+        {layout ? (
+          <View style={[styles.frame, layout.card]}>
+            <View style={[styles.viewfinder, { backgroundColor: "#111111" }]}>
+              {/* Sized to the photo itself, so nothing outside it is cropped
               away unseen; the guide inside marks what the polaroid keeps. */}
-          {layout ? (
-            <View
-              style={{
-                height: layout.preview.height,
-                left: layout.preview.x,
-                position: "absolute",
-                top: layout.preview.y,
-                width: layout.preview.width,
-              }}
-            >
-              <CameraView
-                ref={cameraRef}
-                active
-                facing={facing}
-                mirror={facing === "front"}
-                mode="picture"
-                onCameraReady={() => setCameraReady(true)}
-                onMountError={(event) => {
-                  setCameraReady(false);
-                  console.warn("[quotd-camera-mount]", event.message);
-                  showToast("The camera could not start", "error");
-                }}
-                style={StyleSheet.absoluteFill}
-              />
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.guide,
-                  {
-                    height: layout.guide.height,
-                    left: layout.guide.x,
-                    top: layout.guide.y,
-                    width: layout.guide.width,
-                  },
+              {layout ? (
+                <View
+                  style={[
+                    styles.preview,
+                    {
+                      height: layout.preview.height,
+                      left: layout.preview.x,
+                      top: layout.preview.y,
+                      width: layout.preview.width,
+                    },
+                  ]}
+                >
+                  <CameraView
+                    ref={cameraRef}
+                    active
+                    facing={facing}
+                    mirror={facing === "front"}
+                    mode="picture"
+                    pictureSize="3840x2160"
+                    onAvailableLensesChanged={({ lenses }) => {
+                      setHasUltraWide(
+                        lenses.some((entry) => entry.deviceType === ULTRA_WIDE)
+                      );
+                      // Sent each time the session takes a new camera, which
+                      // is when the switched camera can take a photo.
+                      if (isSwitchingCamera.current) {
+                        isSwitchingCamera.current = false;
+                        setCameraReady(true);
+                      }
+                    }}
+                    onCameraReady={() => setCameraReady(true)}
+                    onMountError={(event) => {
+                      setCameraReady(false);
+                      console.warn("[quotd-camera-mount]", event.message);
+                      showToast("The camera could not start", "error");
+                    }}
+                    // Named, not left to the multi-lens camera: on that one, zoom
+                    // 1.0 is the ultra-wide, and switching to photo mode resets
+                    // the zoom there after expo-camera has set it to 1x.
+                    selectedLens={facing === "back" ? lensType : undefined}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.guide,
+                      {
+                        borderRadius: layout.guide.radius,
+                        height: layout.guide.height,
+                        left: layout.guide.x,
+                        top: layout.guide.y,
+                        width: layout.guide.width,
+                      },
+                    ]}
+                  />
+                  {facing === "back" && hasUltraWide ? (
+                    <View style={styles.lenses}>
+                      {LENSES.map((option) => {
+                        const selected = lens === option.lens;
+                        return (
+                          <Pressable
+                            accessibilityLabel={option.accessibilityLabel}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            hitSlop={6}
+                            key={option.lens}
+                            onPress={() => setLens(option.lens)}
+                            style={[
+                              styles.lens,
+                              selected && styles.lensSelected,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.lensText,
+                                selected && styles.lensTextSelected,
+                              ]}
+                            >
+                              {selected ? `${option.label}×` : option.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityLabel="Close camera"
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.close,
+                  pressed && styles.pressed,
                 ]}
-              />
+              >
+                <X color="#FFFFFF" size={28} strokeWidth={1.8} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Switch camera"
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={() => {
+                  isSwitchingCamera.current = true;
+                  setCameraReady(false);
+                  setFacing((current) =>
+                    current === "back" ? "front" : "back"
+                  );
+                }}
+                style={({ pressed }) => [
+                  styles.flip,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <RotateCcw color="#FFFFFF" size={24} strokeWidth={1.8} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Choose from photo library"
+                accessibilityRole="button"
+                disabled={isPickingPhoto}
+                hitSlop={8}
+                onPress={choosePhoto}
+                style={({ pressed }) => [
+                  styles.library,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Images color="#FFFFFF" size={24} strokeWidth={1.8} />
+              </Pressable>
             </View>
-          ) : null}
-          <Pressable
-            accessibilityLabel="Close camera"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={onClose}
-            style={({ pressed }) => [styles.close, pressed && styles.pressed]}
-          >
-            <X color="#FFFFFF" size={28} strokeWidth={1.8} />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Switch camera"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={() => {
-              setCameraReady(false);
-              setFacing((current) => (current === "back" ? "front" : "back"));
-            }}
-            style={({ pressed }) => [styles.flip, pressed && styles.pressed]}
-          >
-            <RotateCcw color="#FFFFFF" size={24} strokeWidth={1.8} />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Choose from photo library"
-            accessibilityRole="button"
-            disabled={isPickingPhoto}
-            hitSlop={8}
-            onPress={choosePhoto}
-            style={({ pressed }) => [styles.library, pressed && styles.pressed]}
-          >
-            <Images color="#FFFFFF" size={24} strokeWidth={1.8} />
-          </Pressable>
-        </View>
-        {/* The shutter sits in a bite taken out of the viewfinder's edge. */}
-        <View
-          pointerEvents="none"
-          style={[styles.notch, { backgroundColor: palette.background }]}
-        />
-        <Pressable
-          accessibilityLabel="Take photo"
-          accessibilityRole="button"
-          disabled={!cameraReady || isTakingPhoto}
-          onPress={takePhoto}
-          style={({ pressed }) => [
-            styles.shutter,
-            { backgroundColor: palette.background },
-            (!cameraReady || isTakingPhoto) && styles.disabled,
-            pressed && styles.shutterPressed,
-          ]}
-        />
+            {/* The shutter sits in a bite taken out of the viewfinder's edge. */}
+            <View
+              pointerEvents="none"
+              style={[styles.notch, { backgroundColor: palette.background }]}
+            />
+            <Pressable
+              accessibilityLabel="Take photo"
+              accessibilityRole="button"
+              disabled={!cameraReady || isTakingPhoto}
+              onPress={takePhoto}
+              style={({ pressed }) => [
+                styles.shutter,
+                { backgroundColor: palette.background },
+                (!cameraReady || isTakingPhoto) && styles.disabled,
+                pressed && styles.shutterPressed,
+              ]}
+            />
+          </View>
+        ) : null}
       </View>
     </View>
   );
 }
 
+type Lens = "wide" | "ultraWide";
+
+const WIDE = "AVCaptureDeviceTypeBuiltInWideAngleCamera";
+const ULTRA_WIDE = "AVCaptureDeviceTypeBuiltInUltraWideCamera";
+const LENSES: { accessibilityLabel: string; label: string; lens: Lens }[] = [
+  { accessibilityLabel: "Ultra wide lens", label: ".5", lens: "ultraWide" },
+  { accessibilityLabel: "Standard lens", label: "1", lens: "wide" },
+];
+/** Room between the photo and the viewfinder's sides, so all of the guide shows. */
+const PREVIEW_INSET = 10;
 const SHUTTER_SIZE = 76;
 /** The bite around the shutter, wider than it by the gap between them. */
 const NOTCH_SIZE = SHUTTER_SIZE + 16;
@@ -295,26 +382,73 @@ const BELOW_VIEWFINDER = SHUTTER_SIZE / 2 + 34;
 
 const styles = StyleSheet.create({
   close: {
-    left: 20,
+    alignItems: "center",
+    backgroundColor: "rgba(20,20,20,0.35)",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    left: 18,
     position: "absolute",
-    top: 20,
+    top: 18,
+    width: 44,
+  },
+  closePlain: {
+    backgroundColor: "transparent",
   },
   disabled: {
     opacity: 0.4,
   },
   flip: {
+    alignItems: "center",
+    backgroundColor: "rgba(20,20,20,0.35)",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
     position: "absolute",
-    right: 20,
-    top: 22,
+    right: 18,
+    top: 18,
+    width: 44,
   },
-  frame: {
+  area: {
+    alignItems: "center",
     flex: 1,
+    justifyContent: "center",
     marginHorizontal: 12,
   },
+  frame: {},
   // Marks the part of the photo that the polaroid keeps.
   guide: {
-    borderColor: "rgba(255,255,255,0.45)",
-    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+    borderCurve: "continuous",
+    borderWidth: 1.5,
+    position: "absolute",
+  },
+  lens: {
+    alignItems: "center",
+    borderRadius: 16,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  lensSelected: {
+    backgroundColor: "rgba(20,20,20,0.55)",
+  },
+  lensText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  lensTextSelected: {
+    color: "#FFD60A",
+  },
+  lenses: {
+    alignSelf: "center",
+    backgroundColor: "rgba(20,20,20,0.3)",
+    borderRadius: 20,
+    bottom: 12,
+    flexDirection: "row",
+    gap: 4,
+    padding: 4,
     position: "absolute",
   },
   library: {
@@ -367,6 +501,12 @@ const styles = StyleSheet.create({
   pillText: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  preview: {
+    borderCurve: "continuous",
+    borderRadius: 22,
+    overflow: "hidden",
+    position: "absolute",
   },
   pressed: {
     opacity: 0.6,

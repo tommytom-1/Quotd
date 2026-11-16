@@ -1,5 +1,5 @@
 import { Stack, useRouter } from "expo-router";
-import { GalleryVerticalEnd, Plus, UsersRound } from "lucide-react-native";
+import { Plus, UsersRound, X } from "lucide-react-native";
 import {
   Platform,
   Pressable,
@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ProfileAvatar } from "@/components/profile-avatar";
 import { useApp } from "@/context/app-context";
-import { setHomeView, useHomeView } from "@/lib/home-view";
+import { setPeoplePickerOpen, usePeoplePickerOpen } from "@/lib/home-view";
 
 // The SDK 56 bottom UIToolbar host requires iOS 18. Keep the same controls on
 // older iOS and web, where Stack.Toolbar does not render a bottom bar.
@@ -24,25 +24,25 @@ export function BottomNavigation({
   onSwitchView,
 }: {
   onAdd: () => void;
-  /** Called once the left button has switched the home screen's view. */
+  /** Called once the left button has opened or closed the people picker. */
   onSwitchView?: () => void;
 }) {
-  const homeView = useHomeView();
+  const pickerOpen = usePeoplePickerOpen();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { isLoading, palette, profile } = useApp();
 
-  // The bar is the same on every screen: its left button leads to whichever
-  // home view is not showing.
-  const SwitchIcon = homeView === "people" ? GalleryVerticalEnd : UsersRound;
+  // The bar is the same on every screen: its left button opens the picker of
+  // whose quotes the wall shows, and closes it again.
+  const SwitchIcon = pickerOpen ? X : UsersRound;
   const switchView = () => {
-    setHomeView(homeView === "people" ? "wall" : "people");
+    setPeoplePickerOpen(!pickerOpen);
     onSwitchView?.();
   };
   const switchButton = (
     <Pressable
-      accessibilityLabel={homeView === "people" ? "Wall" : "People"}
+      accessibilityLabel={pickerOpen ? "Close people" : "Choose whose quotes"}
       accessibilityRole="button"
       accessibilityState={{ disabled: isLoading }}
       disabled={isLoading}

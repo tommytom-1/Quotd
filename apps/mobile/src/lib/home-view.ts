@@ -1,9 +1,8 @@
 import { useSyncExternalStore } from "react";
 
-export type HomeView = "wall" | "people";
-
-// Kept outside React so the bottom bar on any screen can read and switch it.
-let current: HomeView = "wall";
+// Kept outside React so the bottom bar on any screen can read and change them.
+let personId: string | null = null;
+let pickerOpen = false;
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
@@ -13,16 +12,33 @@ function subscribe(listener: () => void) {
   };
 }
 
-export function setHomeView(view: HomeView) {
-  if (view !== current) {
-    current = view;
-    for (const listener of listeners) {
-      listener();
-    }
+function notify() {
+  for (const listener of listeners) {
+    listener();
   }
 }
 
-/** Which of its two views the home screen shows. */
-export function useHomeView() {
-  return useSyncExternalStore(subscribe, () => current);
+/** Shows one person's wall, or everyone's quotes for null. */
+export function setWallPerson(id: string | null) {
+  if (id !== personId) {
+    personId = id;
+    notify();
+  }
+}
+
+/** ID of the person whose wall the home screen shows, null for all quotes. */
+export function useWallPerson() {
+  return useSyncExternalStore(subscribe, () => personId);
+}
+
+export function setPeoplePickerOpen(open: boolean) {
+  if (open !== pickerOpen) {
+    pickerOpen = open;
+    notify();
+  }
+}
+
+/** Whether the picker for whose quotes to show is open over the wall. */
+export function usePeoplePickerOpen() {
+  return useSyncExternalStore(subscribe, () => pickerOpen);
 }

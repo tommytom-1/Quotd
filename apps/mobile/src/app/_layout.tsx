@@ -1,4 +1,5 @@
 import "react-native-gesture-handler";
+import { useFonts } from "expo-font";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -9,7 +10,24 @@ import {
 import { AppProvider, useApp } from "@/context/app-context";
 import { ToastProvider } from "@/context/toast-context";
 
+/** Caption lettering, under the names `HANDS` gives each. */
+const CAPTION_FONTS = {
+  Caveat: require("../../assets/fonts/Caveat.ttf"),
+  DMSans: require("../../assets/fonts/DMSans.ttf"),
+  Fraunces: require("../../assets/fonts/Fraunces.ttf"),
+  IBMPlexMono: require("../../assets/fonts/IBMPlexMono.ttf"),
+  InstrumentSerif: require("../../assets/fonts/InstrumentSerif.ttf"),
+  Mynerve: require("../../assets/fonts/Mynerve.ttf"),
+  ShadowsIntoLight: require("../../assets/fonts/ShadowsIntoLight.ttf"),
+};
+
 export default function RootLayout() {
+  const [fontsLoaded, fontsError] = useFonts(CAPTION_FONTS);
+  // Captions are measured as they are laid out, so nothing is drawn in a
+  // stand-in font first. Lettering that fails to load falls back to the system's.
+  if (!fontsLoaded && !fontsError) {
+    return null;
+  }
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <AppProvider>
@@ -48,7 +66,7 @@ function RootNavigator() {
         <Stack.Screen name="index" />
         <Stack.Screen
           name="quotes"
-          options={{ animation: "slide_from_right", title: "Wall" }}
+          options={{ animation: "slide_from_right", title: "All Quotes" }}
         />
         <Stack.Screen
           name="profile"

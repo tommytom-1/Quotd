@@ -161,6 +161,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           text: input.text.trim(),
           speaker: input.speaker.trim(),
           imageUri,
+          font: input.font,
+          align: input.align,
           createdAt: Date.now(),
         };
 

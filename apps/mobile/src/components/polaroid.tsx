@@ -2,7 +2,13 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
 import type { ComponentRef, Ref } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Image as TiledImage,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import type {
   GestureResponderEvent,
   HostInstance,
@@ -13,17 +19,21 @@ import type { SharedValue } from "react-native-reanimated";
 
 import {
   captionCaretRange,
+  captionTilt,
   captionTopPadding,
+  DEFAULT_ALIGN,
   caretIndexAt,
   expandedHeight,
+  handFor,
   mix,
+  paperWear,
   polaroidMetrics,
   quoteTypography,
   readCaption,
   speakerTypography,
   writeCaption,
 } from "@/lib/polaroid";
-import type { CaptionField } from "@/lib/polaroid";
+import type { CaptionField, WearLayer } from "@/lib/polaroid";
 import { gradientForId } from "@/lib/quote-utils";
 import type { QuoteRecord } from "@/lib/types";
 
@@ -74,8 +84,26 @@ export function Polaroid({
     lines,
   } = useCaptionEditing(quote, focus?.editing);
   const metrics = polaroidMetrics(width);
-  const typography = quoteTypography(readCaption("text", captions.text), width);
-  const speaker = speakerTypography(width);
+  const hand = handFor(quote.font);
+  const typography = quoteTypography(
+    readCaption("text", captions.text),
+    width,
+    hand,
+  );
+  const lettering = {
+    fontFamily: hand.fontFamily,
+    letterSpacing: hand.letterSpacing,
+    textAlign: quote.align ?? DEFAULT_ALIGN,
+  };
+  const speaker = [
+    speakerTypography(width, hand.scale),
+    lettering,
+    hand.written && styles.speakerBleed,
+  ];
+  const wear = paperWear(quote.id, EDGES.length, MARKS.length);
+  const lean = hand.written
+    ? { transform: [{ rotate: `${captionTilt(quote.id)}deg` }] }
+    : null;
   const [quoteHeight, setQuoteHeight] = useState<number | null>(null);
   const lineCount = quoteHeight
     ? Math.round(quoteHeight / typography.lineHeight)
@@ -100,14 +128,16 @@ export function Polaroid({
   }, [hasImage, onImageSettled]);
 
   const paperStyle = useAnimatedStyle(() =>
-    progress ? { height: mix(metrics.height, fullHeight, progress.value) } : {}
+    progress ? { height: mix(metrics.height, fullHeight, progress.value) } : {},
   );
 
   const quoteText = captions.text;
   const speakerText = captions.speaker;
   const quoteStyle = [
     styles.quote,
+    lettering,
     { fontSize: typography.fontSize, lineHeight: typography.lineHeight },
+    hand.written && styles.quoteBleed,
   ];
 
   return (
@@ -123,6 +153,11 @@ export function Polaroid({
           paperStyle,
         ]}
       >
+        <TiledImage
+          resizeMode="repeat"
+          source={GRAIN}
+          style={[StyleSheet.absoluteFill, styles.grain]}
+        />
         <View
           style={[
             styles.photo,
@@ -153,12 +188,45 @@ export function Polaroid({
               transition={0}
             />
           ) : null}
+          {/* Instant film: warm, with blacks that never go fully black. */}
+          <View pointerEvents="none" style={styles.film} />
+          {/* The photo sits a little below the frame, which shades its top. */}
+          <LinearGradient
+            colors={["rgba(0,0,0,0.22)", "rgba(0,0,0,0)"]}
+            pointerEvents="none"
+            style={[styles.recess, { height: metrics.padding * 0.6 }]}
+          />
         </View>
+        {/* Handling: darker edges under roller lines and scuffs. Both stretch
+            with the paper, so its edges stay worn where they are. */}
+        <Image
+          contentFit="fill"
+          pointerEvents="none"
+          source={EDGES[wear.edges.index]}
+          style={[StyleSheet.absoluteFill, { transform: flip(wear.edges) }]}
+        />
+        <Image
+          contentFit="fill"
+          pointerEvents="none"
+          source={MARKS[wear.marks.index]}
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              transform: [
+                { translateX: wear.marks.shiftX * width },
+                { translateY: wear.marks.shiftY * metrics.height },
+                { scale: wear.marks.scale },
+                ...flip(wear.marks),
+              ],
+            },
+          ]}
+        />
 
         {focus ? (
           <View
             style={[
               styles.caption,
+              lean,
               {
                 left: metrics.captionInset,
                 paddingTop: captionTopPadding(metrics, typography, lineCount),
@@ -225,7 +293,7 @@ export function Polaroid({
                 onTextLayout={(event) => {
                   lines.current.speaker = event.nativeEvent.lines;
                 }}
-                style={[styles.speaker, speaker]}
+                style={[styles.speaker, ...speaker]}
                 suppressHighlighting
               >
                 {speakerText}
@@ -237,7 +305,7 @@ export function Polaroid({
                   autoCapitalize="words"
                   maxLength={102}
                   onBlur={() => finishEditing("speaker")}
-                  style={[styles.speaker, speaker, styles.input]}
+                  style={[styles.speaker, ...speaker, styles.input]}
                 >
                   {speakerText}
                 </TextInput>
@@ -249,6 +317,7 @@ export function Polaroid({
             style={[
               styles.caption,
               styles.wallCaption,
+              lean,
               {
                 height: metrics.captionHeight,
                 left: metrics.captionInset,
@@ -267,7 +336,7 @@ export function Polaroid({
             <Text
               allowFontScaling={false}
               numberOfLines={1}
-              style={[styles.speaker, speaker]}
+              style={[styles.speaker, ...speaker]}
             >
               {speakerText}
             </Text>
@@ -296,8 +365,13 @@ function useCaptionEditing(quote: QuoteRecord, editing?: PolaroidEditing) {
       draft?.field === "speaker"
         ? draft.value
         : writeCaption("speaker", quote.speaker),
+    // A quote not yet written leaves its line blank, marks and all.
     text:
-      draft?.field === "text" ? draft.value : writeCaption("text", quote.text),
+      draft?.field === "text"
+        ? draft.value
+        : quote.text
+          ? writeCaption("text", quote.text)
+          : " ",
   };
 
   const finishEditing = (field: CaptionField) => {
@@ -362,12 +436,48 @@ function useCaptionEditing(quote: QuoteRecord, editing?: PolaroidEditing) {
   };
 }
 
-const INK = "#161616";
-const PAPER = "#FFFFFF";
+const INK = "#1B1B20";
+const PAPER = "#F3F2EE";
+const GRAIN = require("../../assets/images/paper/grain.png");
+const EDGES = [
+  require("../../assets/images/paper/edges-1.png"),
+  require("../../assets/images/paper/edges-2.png"),
+  require("../../assets/images/paper/edges-3.png"),
+  require("../../assets/images/paper/edges-4.png"),
+];
+const MARKS = [
+  require("../../assets/images/paper/marks-1.png"),
+  require("../../assets/images/paper/marks-2.png"),
+  require("../../assets/images/paper/marks-3.png"),
+  require("../../assets/images/paper/marks-4.png"),
+  require("../../assets/images/paper/marks-5.png"),
+  require("../../assets/images/paper/marks-6.png"),
+];
+
+function flip(layer: WearLayer) {
+  return [{ scaleX: layer.flipX ? -1 : 1 }, { scaleY: layer.flipY ? -1 : 1 }];
+}
 
 const styles = StyleSheet.create({
   caption: {
     position: "absolute",
+  },
+  film: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(255,226,178,0.09)",
+    borderColor: "rgba(0,0,0,0.3)",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  grain: {
+    height: undefined,
+    opacity: 0.8,
+    width: undefined,
+  },
+  recess: {
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   input: {
     bottom: 0,
@@ -380,35 +490,40 @@ const styles = StyleSheet.create({
   },
   paper: {
     backgroundColor: PAPER,
-    borderColor: "rgba(0,0,0,0.05)",
-    borderCurve: "continuous",
+    borderColor: "rgba(0,0,0,0.08)",
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
   photo: {
-    borderCurve: "continuous",
     overflow: "hidden",
     position: "absolute",
   },
   quote: {
     color: INK,
-    fontWeight: "600",
-    letterSpacing: -0.3,
-    textAlign: "left",
   },
+  // A felt tip bleeds a little into the paper, which thickens its line.
+  quoteBleed: {
+    textShadowColor: INK,
+    textShadowOffset: { height: 0.2, width: 0.5 },
+    textShadowRadius: 0.7,
+  },
+  // Close and tight, as paper lying on a surface casts it.
   shadow: {
     backgroundColor: PAPER,
-    borderCurve: "continuous",
-    elevation: 5,
+    elevation: 3,
     shadowColor: "#000",
-    shadowOffset: { height: 8, width: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
   },
   speaker: {
-    color: "#8E8E8A",
-    fontWeight: "500",
-    textAlign: "left",
+    color: INK,
+    opacity: 0.72,
+  },
+  speakerBleed: {
+    textShadowColor: INK,
+    textShadowOffset: { height: 0, width: 0.3 },
+    textShadowRadius: 0.4,
   },
   wallCaption: {
     justifyContent: "center",

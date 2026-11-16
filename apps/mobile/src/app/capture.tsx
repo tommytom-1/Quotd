@@ -9,7 +9,9 @@ import { DevelopingPolaroid } from "@/components/capture/developing-polaroid";
 import { useApp } from "@/context/app-context";
 import { useToast } from "@/context/toast-context";
 import { playSuccessHaptic } from "@/lib/haptics";
+import { DEFAULT_ALIGN, DEFAULT_FONT } from "@/lib/polaroid";
 import { rankSpeakers } from "@/lib/quote-utils";
+import type { QuoteAlign, QuoteFont } from "@/lib/types";
 
 type CaptureStage = "camera" | "person" | "quote";
 
@@ -21,6 +23,8 @@ export default function CaptureScreen() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [quoteText, setQuoteText] = useState("");
   const [speaker, setSpeaker] = useState("");
+  const [font, setFont] = useState<QuoteFont>(DEFAULT_FONT);
+  const [align, setAlign] = useState<QuoteAlign>(DEFAULT_ALIGN);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const suggestions = useMemo(() => rankSpeakers(quotes), [quotes]);
@@ -69,6 +73,8 @@ export default function CaptureScreen() {
     setIsSaving(true);
     try {
       await addQuote({
+        align,
+        font,
         imageUri,
         speaker,
         text: quoteText,
@@ -113,11 +119,20 @@ export default function CaptureScreen() {
           onLeading={() => setStage("person")}
           onSubmit={save}
           placeholder="What they said"
+          polaroid={{
+            align,
+            font,
+            onAlign: setAlign,
+            onFont: setFont,
+            speaker,
+          }}
           submitLabel="Save quote"
           value={quoteText}
         />
         {isSaved ? (
           <DevelopingPolaroid
+            align={align}
+            font={font}
             imageUri={imageUri}
             onDone={showWall}
             speaker={speaker}

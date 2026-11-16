@@ -1,3 +1,5 @@
+import type { QuoteAlign, QuoteFont } from "./types";
+
 /** Share of a polaroid's height that stays visible above the next one. */
 const STACK_STEP = 0.44;
 /** Scroll distance, in stack steps, after which a leaving polaroid is gone. */
@@ -19,8 +21,12 @@ export interface PolaroidMetrics {
   step: number;
 }
 
-/** The camera's photos are 4:3; portrait, they are this wide for their height. */
-const SENSOR_RATIO = 3 / 4;
+/**
+ * The camera takes 16:9 photos, so held upright they are this wide for their
+ * height. 16:9 keeps the sensor's full width and trims its top and bottom, so a
+ * polaroid's crop from the middle is the same as it would be from a 4:3 photo.
+ */
+const SENSOR_RATIO = 9 / 16;
 
 interface Rect {
   x: number;
@@ -30,28 +36,32 @@ interface Rect {
 }
 
 /**
- * Lays out a camera viewfinder so that what is framed is what is kept. The
- * preview shows the whole photo, as large as fits, and the guide marks the
- * part of it a polaroid shows: the full width, and a band from the middle.
+ * Lays out a camera viewfinder so that what is framed is what is kept. The card
+ * holds the whole photo with `inset` all round, as large as fits in `area`, so
+ * the live picture fills it. The guide marks the part of the photo a polaroid
+ * shows: the full width, and a band from the middle, rounded like its photo.
  */
-export function viewfinderLayout(frame: { width: number; height: number }) {
-  const width = Math.min(frame.width, frame.height * SENSOR_RATIO);
+export function viewfinderLayout(
+  area: { width: number; height: number },
+  inset = 0
+) {
+  const width = Math.min(
+    area.width - inset * 2,
+    (area.height - inset * 2) * SENSOR_RATIO
+  );
   const height = width / SENSOR_RATIO;
-  const preview: Rect = {
-    x: (frame.width - width) / 2,
-    y: (frame.height - height) / 2,
-    width,
-    height,
-  };
-  const { photoWidth, photoHeight } = polaroidMetrics(1);
+  const card = { width: width + inset * 2, height: height + inset * 2 };
+  const preview: Rect = { x: inset, y: inset, width, height };
+  const { photoWidth, photoHeight, photoRadius } = polaroidMetrics(1);
   const guideHeight = (width / photoWidth) * photoHeight;
-  const guide: Rect = {
+  const guide: Rect & { radius: number } = {
     x: 0,
     y: (height - guideHeight) / 2,
     width,
     height: guideHeight,
+    radius: (width / photoWidth) * photoRadius,
   };
-  return { guide, preview };
+  return { card, guide, preview };
 }
 
 /** Every measure derives from the width, so a polaroid scales uniformly. */
@@ -70,9 +80,9 @@ export function polaroidMetrics(width: number): PolaroidMetrics {
     captionTop: padding + photoHeight,
     captionHeight,
     captionInset: width * 0.07,
-    radius: width * 0.075,
-    // Concentric with the card, so the border around the photo stays even.
-    photoRadius: width * 0.075 - padding,
+    // Cut paper: barely eased corners, and a photo that is all but square.
+    radius: width * 0.012,
+    photoRadius: width * 0.004,
     step: height * STACK_STEP,
   };
 }
@@ -82,9 +92,110 @@ export interface QuoteTypography {
   lineHeight: number;
   /** Lines shown on the wall. The focused polaroid shows every line. */
   maxLines: number;
+  /** How much larger the hand is written to read as large as type. */
+  scale: number;
 }
 
-export function quoteTypography(text: string, width: number): QuoteTypography {
+/** The lettering a caption is set in: a handwriting, or a typeface. */
+export interface Hand {
+  fontFamily: string;
+  /** What the lettering is called where one is chosen. */
+  label: string;
+  letterSpacing?: number;
+  /** Lettering sits at different sizes in its em square; this evens it out. */
+  scale: number;
+  /** Written by hand: the ink bleeds a little and the lines lean. */
+  written?: boolean;
+}
+
+/** Every lettering a caption can be set in, in the order they are offered. */
+export const HANDS: Record<QuoteFont, Hand> = {
+  mynerve: { fontFamily: "Mynerve", label: "Marker", scale: 1, written: true },
+  caveat: { fontFamily: "Caveat", label: "Pen", scale: 1.3, written: true },
+  shadows: {
+    fontFamily: "ShadowsIntoLight",
+    label: "Neat",
+    scale: 1.12,
+    written: true,
+  },
+  fraunces: {
+    fontFamily: "Fraunces",
+    label: "Classic",
+    letterSpacing: -0.2,
+    scale: 1,
+  },
+  instrumentSerif: {
+    fontFamily: "InstrumentSerif",
+    label: "Editorial",
+    scale: 1.18,
+  },
+  dmSans: {
+    fontFamily: "DMSans",
+    label: "Clean",
+    letterSpacing: -0.2,
+    scale: 1,
+  },
+  plexMono: {
+    fontFamily: "IBMPlexMono",
+    label: "Typed",
+    letterSpacing: -0.4,
+    scale: 0.86,
+  },
+};
+
+export const DEFAULT_FONT: QuoteFont = "mynerve";
+export const DEFAULT_ALIGN: QuoteAlign = "center";
+
+/** A quote's lettering; the default for one saved without, or with one since removed. */
+export function handFor(font?: QuoteFont): Hand {
+  return (font && HANDS[font]) || HANDS[DEFAULT_FONT];
+}
+
+export interface WearLayer {
+  index: number;
+  flipX: boolean;
+  flipY: boolean;
+}
+
+/**
+ * How a polaroid's paper has worn. Its edges and its marks are drawn from
+ * separate sets and each turned its own way, and the marks are enlarged and
+ * slid about, so that no two polaroids on a wall carry the same wear.
+ */
+export function paperWear(id: string, edgeCount: number, markCount: number) {
+  const pick = (salt: string) => hashString(`${id}:${salt}`);
+  const layer = (salt: string, count: number): WearLayer => {
+    const hash = pick(salt);
+    return {
+      flipX: Math.floor(hash / count) % 2 === 1,
+      flipY: Math.floor(hash / count / 2) % 2 === 1,
+      index: hash % count,
+    };
+  };
+  const unit = (salt: string) => (pick(salt) % 1000) / 1000;
+  const scale = 1.1 + unit("scale") * 0.35;
+  return {
+    edges: layer("edges", edgeCount),
+    marks: {
+      ...layer("marks", markCount),
+      scale,
+      // As shares of the paper's size, kept within what the enlargement hides.
+      shiftX: (unit("x") - 0.5) * (scale - 1),
+      shiftY: (unit("y") - 0.5) * (scale - 1),
+    },
+  };
+}
+
+/** Degrees a caption leans, as writing by hand never sits quite level. */
+export function captionTilt(id: string) {
+  return ((hashString(`${id}:caption`) % 100) / 100 - 0.5) * 2.4;
+}
+
+export function quoteTypography(
+  text: string,
+  width: number,
+  hand?: Hand
+): QuoteTypography {
   let ratio = 0.074;
   let maxLines = 2;
   if (text.length > 110) {
@@ -97,13 +208,15 @@ export function quoteTypography(text: string, width: number): QuoteTypography {
     ratio = 0.06;
     maxLines = 3;
   }
-  const fontSize = width * ratio;
-  return { fontSize, lineHeight: fontSize * 1.22, maxLines };
+  const scale = hand?.scale ?? 1;
+  const fontSize = width * ratio * scale;
+  // The lines keep the room they had in type, however the hand is scaled.
+  return { fontSize, lineHeight: width * ratio * 1.22, maxLines, scale };
 }
 
-export function speakerTypography(width: number) {
+export function speakerTypography(width: number, scale = 1) {
   const fontSize = width * 0.045;
-  return { fontSize, lineHeight: fontSize * 1.25 };
+  return { fontSize: fontSize * scale, lineHeight: fontSize * 1.25 };
 }
 
 /**
@@ -117,7 +230,7 @@ export function captionTopPadding(
   lineCount: number
 ) {
   const lines = Math.min(Math.max(lineCount, 1), typography.maxLines);
-  const speaker = speakerTypography(metrics.width);
+  const speaker = speakerTypography(metrics.width, typography.scale);
   return Math.max(
     0,
     (metrics.captionHeight -
@@ -134,7 +247,7 @@ export function expandedHeight(
   quoteHeight: number
 ) {
   const lineCount = Math.round(quoteHeight / typography.lineHeight);
-  const speaker = speakerTypography(metrics.width);
+  const speaker = speakerTypography(metrics.width, typography.scale);
   return Math.max(
     metrics.height,
     metrics.captionTop +
@@ -331,47 +444,4 @@ export function mix(from: number, to: number, progress: number) {
 export function progressBetween(progress: number, start: number, end: number) {
   "worklet";
   return Math.min(1, Math.max(0, (progress - start) / (end - start)));
-}
-
-/** Share of a polaroid's height between two polaroids in a person's column. */
-const COLUMN_STEP = 0.92;
-/** Polaroids left peeking out from behind the front of a pile. */
-export const PILE_DEPTH = 3;
-
-export function columnMetrics(width: number) {
-  return {
-    /** Distance between the tops of two polaroids in a column. */
-    step: polaroidMetrics(width).height * COLUMN_STEP,
-    /** Strip of a piled polaroid that shows above the one in front of it. */
-    peek: width * 0.085,
-  };
-}
-
-/**
- * A polaroid reaching the top of its column stops there, and the following ones
- * pile onto it. Returns the offset from its scrolled position in the list, and
- * the 0–1 strength of its shadow.
- */
-export function pilePose(
-  scrollY: number,
-  index: number,
-  step: number,
-  peek: number
-) {
-  "worklet";
-  const piled = Math.max(0, scrollY / step);
-  // The pile grows downwards until it shows PILE_DEPTH polaroids behind its front.
-  const lift = peek * Math.min(piled, PILE_DEPTH);
-  const depth = piled - index;
-  if (depth <= 0) {
-    return { opacity: 1, shadow: 1, translateY: lift };
-  }
-  return {
-    // Once squarely behind the pile, a polaroid fades out as the next one lands.
-    opacity: 1 - Math.min(1, Math.max(0, depth - PILE_DEPTH)),
-    // A covered polaroid stops casting its own shadow, or the pile's would add up.
-    shadow: 1 - Math.min(1, depth),
-    translateY:
-      lift - peek * Math.min(depth, PILE_DEPTH) + scrollY - index * step,
-  };
 }

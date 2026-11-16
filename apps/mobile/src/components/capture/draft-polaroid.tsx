@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useSharedValue } from "react-native-reanimated";
 
 import { Polaroid } from "@/components/polaroid";
-import type { QuoteRecord } from "@/lib/types";
+import type { QuoteAlign, QuoteFont, QuoteRecord } from "@/lib/types";
 
 /**
  * The quote being captured, drawn by the same polaroid the wall uses, so what
@@ -10,12 +10,16 @@ import type { QuoteRecord } from "@/lib/types";
  * the caption to show the whole quote and who said it.
  */
 export function DraftPolaroid({
+  align,
+  font,
   imageUri,
   speaker,
   text,
   width,
   withSpeaker = false,
 }: {
+  align?: QuoteAlign;
+  font?: QuoteFont;
   imageUri: string | null;
   speaker: string;
   text: string;
@@ -25,8 +29,8 @@ export function DraftPolaroid({
   const [createdAt] = useState(Date.now);
   const progress = useSharedValue(1);
   const quote = useMemo<QuoteRecord>(
-    () => ({ createdAt, id: "draft", imageUri, speaker, text }),
-    [createdAt, imageUri, speaker, text]
+    () => ({ align, createdAt, font, id: "draft", imageUri, speaker, text }),
+    [align, createdAt, font, imageUri, speaker, text]
   );
   return (
     <Polaroid
