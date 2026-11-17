@@ -12,7 +12,10 @@
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "today.quotd.quotd",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": [
+          "instagram-stories"
+        ]
       }
     },
     "android": {

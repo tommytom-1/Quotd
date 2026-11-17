@@ -1,11 +1,6 @@
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
-import {
-  Check,
-  TextAlignCenter,
-  TextAlignEnd,
-  TextAlignStart,
-} from "lucide-react-native";
+import { Check } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
@@ -21,9 +16,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { CaptionStyleControls } from "@/components/caption-style-controls";
 import { DraftPolaroid } from "@/components/capture/draft-polaroid";
 import { useApp } from "@/context/app-context";
-import { HANDS, polaroidMetrics } from "@/lib/polaroid";
+import { polaroidMetrics } from "@/lib/polaroid";
 import type { QuoteAlign, QuoteFont } from "@/lib/types";
 
 /** The quote as it will be kept, and the controls that style its caption. */
@@ -169,78 +165,14 @@ export function CaptionStep({
         )}
 
         {polaroid ? (
-          <View style={styles.tools}>
-            <View style={[styles.aligns, { backgroundColor: palette.surface }]}>
-              {ALIGNS.map(({ align, icon: AlignIcon, label: alignLabel }) => {
-                const selected = polaroid.align === align;
-                return (
-                  <Pressable
-                    accessibilityLabel={alignLabel}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    disabled={busy}
-                    hitSlop={4}
-                    key={align}
-                    onPress={() => polaroid.onAlign(align)}
-                    style={[
-                      styles.align,
-                      selected && { backgroundColor: palette.inverseSurface },
-                    ]}
-                  >
-                    <AlignIcon
-                      color={selected ? palette.inverseText : palette.text}
-                      size={18}
-                      strokeWidth={2}
-                    />
-                  </Pressable>
-                );
-              })}
-            </View>
-            <ScrollView
-              contentContainerStyle={styles.fonts}
-              horizontal
-              keyboardShouldPersistTaps="always"
-              showsHorizontalScrollIndicator={false}
-            >
-              {FONTS.map((font) => {
-                const hand = HANDS[font];
-                const selected = polaroid.font === font;
-                return (
-                  <Pressable
-                    accessibilityLabel={`${hand.label} lettering`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    disabled={busy}
-                    key={font}
-                    onPress={() => polaroid.onFont(font)}
-                    style={({ pressed }) => [
-                      styles.font,
-                      {
-                        backgroundColor: selected
-                          ? palette.inverseSurface
-                          : palette.surface,
-                      },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      allowFontScaling={false}
-                      style={[
-                        styles.fontText,
-                        {
-                          color: selected ? palette.inverseText : palette.text,
-                          fontFamily: hand.fontFamily,
-                          fontSize: 16 * hand.scale,
-                        },
-                      ]}
-                    >
-                      {hand.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
+          <CaptionStyleControls
+            align={polaroid.align}
+            disabled={busy}
+            font={polaroid.font}
+            onAlign={polaroid.onAlign}
+            onFont={polaroid.onFont}
+            style={styles.tools}
+          />
         ) : null}
 
         {suggestions.length > 0 ? (
@@ -365,42 +297,8 @@ function useKeyboardShown(bottomInset: number) {
 }
 
 const LEADING_SIZE = 44;
-const FONTS = Object.keys(HANDS) as QuoteFont[];
-const ALIGNS = [
-  { align: "left", icon: TextAlignStart, label: "Align left" },
-  { align: "center", icon: TextAlignCenter, label: "Align centre" },
-  { align: "right", icon: TextAlignEnd, label: "Align right" },
-] as const;
 
 const styles = StyleSheet.create({
-  align: {
-    alignItems: "center",
-    borderRadius: 15,
-    height: 30,
-    justifyContent: "center",
-    width: 34,
-  },
-  aligns: {
-    borderCurve: "continuous",
-    borderRadius: 19,
-    flexDirection: "row",
-    gap: 2,
-    padding: 4,
-  },
-  font: {
-    borderCurve: "continuous",
-    borderRadius: 19,
-    height: 38,
-    justifyContent: "center",
-    paddingHorizontal: 15,
-  },
-  fontText: {
-    lineHeight: 24,
-  },
-  fonts: {
-    gap: 8,
-    paddingRight: 12,
-  },
   leadingPlain: {
     alignItems: "center",
     borderRadius: LEADING_SIZE / 2,
@@ -416,11 +314,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tools: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
     marginTop: 10,
-    paddingLeft: 12,
   },
   card: {
     alignItems: "center",

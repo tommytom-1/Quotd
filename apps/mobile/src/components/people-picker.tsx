@@ -17,6 +17,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BOTTOM_NAVIGATION_HEIGHT } from "@/components/bottom-navigation";
+import { SmoothEdges } from "@/components/smooth-edges";
 import { useApp } from "@/context/app-context";
 import { polaroidMetrics, polaroidPlacement } from "@/lib/polaroid";
 import type { PersonQuotes } from "@/lib/speaker-utils";
@@ -33,6 +34,8 @@ const PILE = [
 const GAP = 14;
 /** How much lower the right-hand column sits, so the pile looks scattered. */
 const STAGGER = 34;
+/** Room around each card for its shadow; see SmoothEdges. */
+const CARD_EDGE_MARGIN = 26;
 
 /**
  * Whose quotes the wall shows, picked from a scatter of small polaroids over
@@ -194,16 +197,76 @@ function PersonCard({
             key={quote.id}
             pointerEvents="none"
             style={[
-              styles.card,
-              styles.pileCard,
+              styles.pileSlot,
               {
-                borderRadius: metrics.radius,
-                padding: metrics.padding,
                 transform: [
                   { translateX: PILE[depth].x * width },
                   { translateY: PILE[depth].y * width },
                   { rotate: `${tilt + PILE[depth].turn}deg` },
                 ],
+              },
+            ]}
+          >
+            <SmoothEdges margin={CARD_EDGE_MARGIN} style={styles.fill}>
+              <View
+                style={[
+                  styles.card,
+                  styles.pileCard,
+                  {
+                    borderRadius: metrics.radius,
+                    padding: metrics.padding,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.photo,
+                    {
+                      backgroundColor: person.color,
+                      borderRadius: metrics.photoRadius,
+                      height: photoHeight,
+                    },
+                  ]}
+                >
+                  {quote.imageUri ? (
+                    <Image
+                      cachePolicy="memory-disk"
+                      contentFit="cover"
+                      recyclingKey={quote.imageUri}
+                      source={quote.imageUri}
+                      style={StyleSheet.absoluteFill}
+                      transition={0}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            </SmoothEdges>
+          </View>
+        );
+      })}
+      <Pressable
+        accessibilityLabel={`${person.name}, ${quotes.length} ${quotes.length === 1 ? "quote" : "quotes"}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        onPress={onPress}
+        style={({ pressed }) => [
+          {
+            transform: [
+              { rotate: `${tilt}deg` },
+              { scale: pressed ? 0.96 : 1 },
+            ],
+            width,
+          },
+        ]}
+      >
+        <SmoothEdges margin={CARD_EDGE_MARGIN}>
+          <View
+            style={[
+              styles.card,
+              {
+                borderColor: selected ? "#161616" : "transparent",
+                borderRadius: metrics.radius,
+                padding: metrics.padding,
               },
             ]}
           >
@@ -217,70 +280,29 @@ function PersonCard({
                 },
               ]}
             >
-              {quote.imageUri ? (
+              {photo ? (
                 <Image
                   cachePolicy="memory-disk"
                   contentFit="cover"
-                  recyclingKey={quote.imageUri}
-                  source={quote.imageUri}
+                  recyclingKey={photo}
+                  source={photo}
                   style={StyleSheet.absoluteFill}
                   transition={0}
                 />
-              ) : null}
+              ) : (
+                <Text style={[styles.initial, { fontSize: width * 0.28 }]}>
+                  {person.name.trim().charAt(0).toUpperCase()}
+                </Text>
+              )}
             </View>
-          </View>
-        );
-      })}
-      <Pressable
-        accessibilityLabel={`${person.name}, ${quotes.length} ${quotes.length === 1 ? "quote" : "quotes"}`}
-        accessibilityRole="button"
-        accessibilityState={{ selected }}
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.card,
-          {
-            borderColor: selected ? "#161616" : "transparent",
-            borderRadius: metrics.radius,
-            padding: metrics.padding,
-            transform: [
-              { rotate: `${tilt}deg` },
-              { scale: pressed ? 0.96 : 1 },
-            ],
-            width,
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.photo,
-            {
-              backgroundColor: person.color,
-              borderRadius: metrics.photoRadius,
-              height: photoHeight,
-            },
-          ]}
-        >
-          {photo ? (
-            <Image
-              cachePolicy="memory-disk"
-              contentFit="cover"
-              recyclingKey={photo}
-              source={photo}
-              style={StyleSheet.absoluteFill}
-              transition={0}
-            />
-          ) : (
-            <Text style={[styles.initial, { fontSize: width * 0.28 }]}>
-              {person.name.trim().charAt(0).toUpperCase()}
+            <Text numberOfLines={1} style={styles.name}>
+              {person.name}
             </Text>
-          )}
-        </View>
-        <Text numberOfLines={1} style={styles.name}>
-          {person.name}
-        </Text>
-        <Text style={[styles.count, { color: palette.textMuted }]}>
-          {quotes.length} {quotes.length === 1 ? "quote" : "quotes"}
-        </Text>
+            <Text style={[styles.count, { color: palette.textMuted }]}>
+              {quotes.length} {quotes.length === 1 ? "quote" : "quotes"}
+            </Text>
+          </View>
+        </SmoothEdges>
       </Pressable>
     </Animated.View>
   );
@@ -325,6 +347,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 1,
   },
+  fill: {
+    flex: 1,
+  },
   empty: {
     fontSize: 15,
     marginTop: 40,
@@ -349,11 +374,14 @@ const styles = StyleSheet.create({
   },
   pileCard: {
     borderColor: "transparent",
+    flex: 1,
+    shadowOpacity: 0.08,
+  },
+  pileSlot: {
     bottom: 0,
     left: 0,
     position: "absolute",
     right: 0,
-    shadowOpacity: 0.08,
     top: 0,
   },
   photo: {

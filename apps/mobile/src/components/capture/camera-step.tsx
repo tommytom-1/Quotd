@@ -1,9 +1,16 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
-import type { CameraType } from "expo-camera";
+import type { CameraType, FlashMode } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { StatusBar } from "expo-status-bar";
-import { Camera, Images, RotateCcw, X } from "lucide-react-native";
+import {
+  Camera,
+  Image as ImageIcon,
+  RotateCcw,
+  X,
+  Zap,
+  ZapOff,
+} from "lucide-react-native";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { SmoothEdges } from "@/components/smooth-edges";
 import { useApp } from "@/context/app-context";
 import { useToast } from "@/context/toast-context";
 import { viewfinderLayout } from "@/lib/polaroid";
@@ -32,6 +40,7 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>("back");
   const [lens, setLens] = useState<Lens>("wide");
+  const [flash, setFlash] = useState<Flash>("off");
   const [hasUltraWide, setHasUltraWide] = useState(false);
   const lensType = lens === "ultraWide" ? ULTRA_WIDE : WIDE;
   const [cameraReady, setCameraReady] = useState(false);
@@ -130,7 +139,6 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
             hitSlop={12}
             onPress={onClose}
             style={({ pressed }) => [
-              styles.close,
               styles.closePlain,
               pressed && styles.pressed,
             ]}
@@ -226,6 +234,7 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
                     ref={cameraRef}
                     active
                     facing={facing}
+                    flash={flash}
                     mirror={facing === "front"}
                     mode="picture"
                     pictureSize="3840x2160"
@@ -298,16 +307,29 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
                 </View>
               ) : null}
               <Pressable
-                accessibilityLabel="Close camera"
+                accessibilityLabel={`Flash ${FLASH_LABELS[flash]}`}
+                accessibilityHint="Changes the flash"
                 accessibilityRole="button"
-                hitSlop={12}
-                onPress={onClose}
+                hitSlop={8}
+                onPress={() => setFlash(FLASH_NEXT[flash])}
                 style={({ pressed }) => [
-                  styles.close,
+                  styles.flash,
                   pressed && styles.pressed,
                 ]}
               >
-                <X color="#FFFFFF" size={28} strokeWidth={1.8} />
+                {flash === "off" ? (
+                  <ZapOff color="#FFFFFF" size={22} strokeWidth={1.8} />
+                ) : (
+                  <Zap
+                    color={FLASH_ON}
+                    fill={FLASH_ON}
+                    size={22}
+                    strokeWidth={1.8}
+                  />
+                )}
+                {flash === "auto" ? (
+                  <Text style={styles.flashAuto}>A</Text>
+                ) : null}
               </Pressable>
               <Pressable
                 accessibilityLabel="Switch camera"
@@ -327,19 +349,6 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
               >
                 <RotateCcw color="#FFFFFF" size={24} strokeWidth={1.8} />
               </Pressable>
-              <Pressable
-                accessibilityLabel="Choose from photo library"
-                accessibilityRole="button"
-                disabled={isPickingPhoto}
-                hitSlop={8}
-                onPress={choosePhoto}
-                style={({ pressed }) => [
-                  styles.library,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Images color="#FFFFFF" size={24} strokeWidth={1.8} />
-              </Pressable>
             </View>
             {/* The shutter sits in a bite taken out of the viewfinder's edge. */}
             <View
@@ -353,11 +362,44 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
               onPress={takePhoto}
               style={({ pressed }) => [
                 styles.shutter,
-                { backgroundColor: palette.background },
+                // The ring takes the text colour, so it stays clear in dark mode.
+                {
+                  backgroundColor: palette.background,
+                  borderColor: palette.text,
+                },
                 (!cameraReady || isTakingPhoto) && styles.disabled,
                 pressed && styles.shutterPressed,
               ]}
             />
+            {/* Either side of the shutter, below the viewfinder. */}
+            <Pressable
+              accessibilityLabel="Close camera"
+              accessibilityRole="button"
+              hitSlop={12}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.belowButton,
+                styles.close,
+                { backgroundColor: palette.surfaceMuted },
+                pressed && styles.pressed,
+              ]}
+            >
+              <X color={palette.text} size={28} strokeWidth={2} />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Choose from photo library"
+              accessibilityRole="button"
+              disabled={isPickingPhoto}
+              hitSlop={10}
+              onPress={choosePhoto}
+              style={({ pressed }) => [
+                styles.belowButton,
+                styles.library,
+                pressed && styles.pressed,
+              ]}
+            >
+              <BlankPolaroid />
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -366,6 +408,16 @@ export function CameraStep({ onCaptured, onClose }: CameraStepProps) {
 }
 
 type Lens = "wide" | "ultraWide";
+type Flash = Extract<FlashMode, "off" | "auto" | "on">;
+
+/** Each tap moves the flash on, as the system camera does. */
+const FLASH_NEXT: Record<Flash, Flash> = { auto: "on", off: "auto", on: "off" };
+const FLASH_LABELS: Record<Flash, string> = {
+  auto: "automatic",
+  off: "off",
+  on: "on",
+};
+const FLASH_ON = "#FFD60A";
 
 const WIDE = "AVCaptureDeviceTypeBuiltInWideAngleCamera";
 const ULTRA_WIDE = "AVCaptureDeviceTypeBuiltInUltraWideCamera";
@@ -378,10 +430,42 @@ const PREVIEW_INSET = 10;
 const SHUTTER_SIZE = 76;
 /** The bite around the shutter, wider than it by the gap between them. */
 const NOTCH_SIZE = SHUTTER_SIZE + 16;
-const BELOW_VIEWFINDER = SHUTTER_SIZE / 2 + 34;
+/** The close and library buttons, either side of the shutter's lower half. */
+const BELOW_BUTTON_SIZE = 56;
+const BELOW_BUTTON_GAP = 20;
+/** How far in from the viewfinder's sides they sit, as a pair. */
+const BELOW_BUTTON_INSET = 30;
+const BELOW_VIEWFINDER = BELOW_BUTTON_GAP + BELOW_BUTTON_SIZE + 10;
+/** The lens switch sits this far above the bite, clear of the shutter. */
+const LENSES_ABOVE_NOTCH = 10;
 
 const styles = StyleSheet.create({
+  belowButton: {
+    alignItems: "center",
+    height: BELOW_BUTTON_SIZE,
+    justifyContent: "center",
+    marginTop: BELOW_BUTTON_GAP,
+    position: "absolute",
+    top: "100%",
+    width: BELOW_BUTTON_SIZE,
+  },
   close: {
+    borderRadius: BELOW_BUTTON_SIZE / 2,
+    left: BELOW_BUTTON_INSET,
+  },
+  closePlain: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    left: 18,
+    position: "absolute",
+    top: 18,
+    width: 44,
+  },
+  disabled: {
+    opacity: 0.4,
+  },
+  flash: {
     alignItems: "center",
     backgroundColor: "rgba(20,20,20,0.35)",
     borderRadius: 22,
@@ -392,11 +476,14 @@ const styles = StyleSheet.create({
     top: 18,
     width: 44,
   },
-  closePlain: {
-    backgroundColor: "transparent",
-  },
-  disabled: {
-    opacity: 0.4,
+  // The small "A" beside the bolt when the flash fires only when it is dark.
+  flashAuto: {
+    bottom: 7,
+    color: FLASH_ON,
+    fontSize: 10,
+    fontWeight: "700",
+    position: "absolute",
+    right: 8,
   },
   flip: {
     alignItems: "center",
@@ -445,22 +532,15 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     backgroundColor: "rgba(20,20,20,0.3)",
     borderRadius: 20,
-    bottom: 12,
+    // Measured from the photo, which stops short of the viewfinder's edge.
+    bottom: NOTCH_SIZE / 2 - PREVIEW_INSET + LENSES_ABOVE_NOTCH,
     flexDirection: "row",
     gap: 4,
     padding: 4,
     position: "absolute",
   },
   library: {
-    alignItems: "center",
-    backgroundColor: "rgba(20,20,20,0.35)",
-    borderRadius: 26,
-    bottom: 18,
-    height: 52,
-    justifyContent: "center",
-    left: 18,
-    position: "absolute",
-    width: 52,
+    right: BELOW_BUTTON_INSET,
   },
   notch: {
     alignSelf: "center",
@@ -516,7 +596,6 @@ const styles = StyleSheet.create({
   },
   shutter: {
     alignSelf: "center",
-    borderColor: "#C2AFA4",
     borderRadius: SHUTTER_SIZE / 2,
     borderWidth: 3,
     bottom: -SHUTTER_SIZE / 2,
@@ -532,5 +611,48 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     flex: 1,
     overflow: "hidden",
+  },
+});
+
+/** An empty polaroid with a picture in it: a photo from the library. */
+function BlankPolaroid() {
+  return (
+    // Set down a little askew, as a real one would be.
+    <View style={polaroidStyles.tilt}>
+      <SmoothEdges margin={6}>
+        <View style={polaroidStyles.paper}>
+          <View style={polaroidStyles.photo}>
+            <ImageIcon color="#6F6C66" size={20} strokeWidth={2} />
+          </View>
+        </View>
+      </SmoothEdges>
+    </View>
+  );
+}
+
+const polaroidStyles = StyleSheet.create({
+  paper: {
+    backgroundColor: "#F3F2EE",
+    borderColor: "rgba(0,0,0,0.14)",
+    borderRadius: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 2,
+    height: 56,
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    shadowColor: "#000",
+    shadowOffset: { height: 1, width: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 2.5,
+    width: 46,
+  },
+  photo: {
+    alignItems: "center",
+    aspectRatio: 1 / 1.03,
+    backgroundColor: "#DCD9D2",
+    justifyContent: "center",
+  },
+  tilt: {
+    transform: [{ rotate: "6deg" }],
   },
 });

@@ -47,10 +47,7 @@ interface AppContextValue {
   resolvedTheme: ResolvedTheme;
   palette: AppPalette;
   addQuote: (input: NewQuoteInput) => Promise<QuoteRecord>;
-  updateQuote: (
-    id: string,
-    updates: Pick<QuoteRecord, "text" | "speaker">
-  ) => QuoteRecord;
+  updateQuote: (id: string, updates: QuoteUpdates) => QuoteRecord;
   deleteQuote: (id: string) => void;
   setDisplayName: (displayName: string) => void;
   setAvatarFromUri: (uri: string) => Promise<void>;
@@ -58,6 +55,11 @@ interface AppContextValue {
   setThemePreference: (theme: ThemePreference) => void;
   clearAllData: () => void;
 }
+
+/** Any of a kept quote's words or the lettering they are written in. */
+export type QuoteUpdates = Partial<
+  Pick<QuoteRecord, "text" | "speaker" | "font" | "align">
+>;
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -181,7 +183,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateQuote = useCallback(
-    (id: string, updates: Pick<QuoteRecord, "text" | "speaker">) => {
+    (id: string, updates: QuoteUpdates) => {
       const currentQuote = stateRef.current.quotes.find(
         (quote) => quote.id === id
       );
@@ -191,8 +193,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const updated: QuoteRecord = {
         ...currentQuote,
-        text: updates.text.trim(),
-        speaker: updates.speaker.trim(),
+        ...updates,
+        text: (updates.text ?? currentQuote.text).trim(),
+        speaker: (updates.speaker ?? currentQuote.speaker).trim(),
         updatedAt: Date.now(),
       };
 

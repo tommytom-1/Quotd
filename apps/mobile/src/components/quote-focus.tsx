@@ -1,5 +1,5 @@
 import * as Sharing from "expo-sharing";
-import { Check, ChevronLeft, Share, Trash2 } from "lucide-react-native";
+import { Check, ChevronLeft, Share, Trash2, Type } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -33,13 +33,22 @@ import type { SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { captureRef, releaseCapture } from "react-native-view-shot";
 
+import { CaptionStyleControls } from "@/components/caption-style-controls";
+import { InstagramGlyph } from "@/components/instagram-glyph";
 import { Polaroid } from "@/components/polaroid";
 import { WallBackground } from "@/components/wall-background";
 import type { WallPolaroidOrigin } from "@/components/wall-polaroid";
 import { useApp } from "@/context/app-context";
+import type { QuoteUpdates } from "@/context/app-context";
 import { useToast } from "@/context/toast-context";
-import { playSuccessHaptic } from "@/lib/haptics";
+import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
+  canShareToInstagramStory,
+  shareToInstagramStory,
+} from "@/lib/instagram-story";
+import {
+  DEFAULT_ALIGN,
+  DEFAULT_FONT,
   focusOrigin,
   mix,
   polaroidMetrics,
@@ -50,7 +59,11 @@ import type { QuoteRecord } from "@/lib/types";
 
 const CARD_TOP = 112;
 const SHARE_AREA = 96;
+/** How far either side of centre the share and story buttons sit. */
+const SHARE_PAIR_OFFSET = 36;
 const KEYBOARD_GAP = 16;
+/** The lettering row (38) over the gap and the tick that closes it. */
+const STYLE_TRAY_HEIGHT = 38 + 14 + 48;
 
 interface QuoteFocusProps {
   quote: QuoteRecord;
@@ -105,6 +118,8 @@ export function QuoteFocus({
   const isClosing = useRef(false);
   const afterDismissRef = useRef<(() => void) | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  // The lettering row stands in for the share button while it is open.
+  const [isStyling, setIsStyling] = useState(false);
   const [transitionComplete, setTransitionComplete] = useState(false);
   const [modalShown, setModalShown] = useState(false);
   const covered = Boolean(origin.covered);
@@ -115,6 +130,8 @@ export function QuoteFocus({
   const [isSharing, setIsSharing] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [shareComplete, setShareComplete] = useState(false);
+  // Shown only where Instagram is installed to take the story.
+  const [canStory, setCanStory] = useState(false);
   const [modalFeedback, setModalFeedback] = useState<{
     message: string;
     type: "success" | "error";
@@ -161,6 +178,20 @@ export function QuoteFocus({
     },
     [dragY, progress]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const available = await canShareToInstagramStory();
+      if (!cancelled) {
+        setCanStory(available);
+      }
+    };
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const ios = Platform.OS === "ios";
@@ -315,8 +346,17 @@ export function QuoteFocus({
     [closing, dragY, finishDismiss, hiddenId, keepHidden, progress, uncover]
   );
 
-  // Leaving while a caption is being edited first puts the keyboard away.
-  const dismiss = () => (isEditing ? Keyboard.dismiss() : closeFromOffset());
+  // Leaving while a caption is being edited first puts the keyboard away, and
+  // while it is being restyled first puts the lettering row away.
+  const dismiss = () => {
+    if (isEditing) {
+      Keyboard.dismiss();
+    } else if (isStyling) {
+      setIsStyling(false);
+    } else {
+      closeFromOffset();
+    }
+  };
 
   const panGesture = useMemo(
     () =>
@@ -415,12 +455,49 @@ export function QuoteFocus({
     }
   };
 
-  const handleEdit = async (updates: Pick<QuoteRecord, "text" | "speaker">) => {
+  const handleStory = async () => {
+    if (isSharing) {
+      return;
+    }
+    setIsSharing(true);
+    let polaroidUri: string | null = null;
+    try {
+      polaroidUri = await capturePolaroid();
+      const opened = await shareToInstagramStory({
+        photoUri: quote.imageUri,
+        polaroidUri,
+      });
+      if (!opened) {
+        showModalFeedback("Could not open Instagram", "error");
+      }
+    } catch (error) {
+      console.warn("[quotd-story]", error);
+      showModalFeedback("Could not share this quote", "error");
+    } finally {
+      if (polaroidUri) {
+        releaseCapture(polaroidUri);
+      }
+      setIsSharing(false);
+    }
+  };
+
+  const handleEdit = async (updates: QuoteUpdates) => {
     try {
       onQuoteUpdated(updateQuote(quote.id, updates));
       await playSuccessHaptic();
     } catch (error) {
       console.warn("[quotd-edit-quote]", error);
+      showModalFeedback("Could not save your changes", "error");
+    }
+  };
+
+  // Each choice is kept as soon as it is made, as the polaroid shows it.
+  const handleRestyle = (updates: QuoteUpdates) => {
+    try {
+      onQuoteUpdated(updateQuote(quote.id, updates));
+      playSelectionHaptic();
+    } catch (error) {
+      console.warn("[quotd-restyle-quote]", error);
       showModalFeedback("Could not save your changes", "error");
     }
   };
@@ -450,9 +527,15 @@ export function QuoteFocus({
 
   const circleStyle = { backgroundColor: palette.surfaceMuted };
   const canShare = imageReady && !isSharing && !isEditing;
+  const canStyle = !isSharing && !isEditing;
   const shareTop = Math.min(
     target.y + restHeight * restScale + 26,
     height - bottomInset - 60
+  );
+  // The lettering row and the tick beneath it, kept clear of the screen's edge.
+  const styleTop = Math.min(
+    shareTop + 9,
+    height - bottomInset - STYLE_TRAY_HEIGHT
   );
 
   return (
@@ -513,24 +596,102 @@ export function QuoteFocus({
             <Trash2 color={palette.danger} size={20} strokeWidth={2} />
           </Pressable>
           <Pressable
-            accessibilityLabel={isSharing ? "Sharing" : "Share quote"}
+            accessibilityLabel="Lettering"
             accessibilityRole="button"
-            accessibilityState={{ disabled: !canShare }}
-            disabled={!canShare}
-            onPress={handleShare}
+            accessibilityState={{ disabled: !canStyle, selected: isStyling }}
+            disabled={!canStyle}
+            hitSlop={6}
+            onPress={() => setIsStyling(true)}
             style={({ pressed }) => [
-              styles.shareButton,
-              { left: width / 2 - 28, top: shareTop },
-              !canShare && styles.disabled,
+              styles.circleButton,
+              isStyling
+                ? { backgroundColor: palette.inverseSurface }
+                : circleStyle,
+              { right: 80, top: insets.top + 44 },
+              !canStyle && styles.disabled,
               pressed && styles.pressed,
             ]}
           >
-            {shareComplete ? (
-              <Check color={palette.text} size={26} strokeWidth={2} />
-            ) : (
-              <Share color={palette.text} size={26} strokeWidth={1.8} />
-            )}
+            <Type
+              color={isStyling ? palette.inverseText : palette.text}
+              size={20}
+              strokeWidth={2}
+            />
           </Pressable>
+          {isStyling ? (
+            <View style={[styles.styleTray, { top: styleTop }]}>
+              <CaptionStyleControls
+                align={quote.align ?? DEFAULT_ALIGN}
+                disabled={!canStyle}
+                font={quote.font ?? DEFAULT_FONT}
+                onAlign={(align) => handleRestyle({ align })}
+                onFont={(font) => handleRestyle({ font })}
+              />
+              <Pressable
+                accessibilityLabel="Done"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => setIsStyling(false)}
+                style={({ pressed }) => [
+                  styles.styleDone,
+                  { backgroundColor: palette.inverseSurface },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Check
+                  color={palette.inverseText}
+                  size={22}
+                  strokeWidth={2.4}
+                />
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <Pressable
+                accessibilityLabel={isSharing ? "Sharing" : "Share quote"}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !canShare }}
+                disabled={!canShare}
+                onPress={handleShare}
+                style={({ pressed }) => [
+                  styles.shareButton,
+                  {
+                    left: width / 2 - 28 - (canStory ? SHARE_PAIR_OFFSET : 0),
+                    top: shareTop,
+                  },
+                  !canShare && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {shareComplete ? (
+                  <Check color={palette.text} size={26} strokeWidth={2} />
+                ) : (
+                  <Share color={palette.text} size={26} strokeWidth={1.8} />
+                )}
+              </Pressable>
+              {canStory ? (
+                <Pressable
+                  accessibilityLabel="Share to Instagram story"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !canShare }}
+                  disabled={!canShare}
+                  onPress={handleStory}
+                  style={({ pressed }) => [
+                    styles.shareButton,
+                    { left: width / 2 - 28 + SHARE_PAIR_OFFSET, top: shareTop },
+                    !canShare && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <InstagramGlyph
+                    color={palette.text}
+                    size={25}
+                    strokeWidth={1.8}
+                  />
+                </Pressable>
+              ) : null}
+            </>
+          )}
         </Reanimated.View>
 
         {/* One polaroid stays mounted through opening, sharing and dismissal. */}
@@ -552,7 +713,12 @@ export function QuoteFocus({
               focus={{
                 editing: {
                   enabled: transitionComplete && !isSharing,
-                  onActiveChange: setIsEditing,
+                  onActiveChange: (active) => {
+                    setIsEditing(active);
+                    if (active) {
+                      setIsStyling(false);
+                    }
+                  },
                   onCommit: handleEdit,
                 },
                 onMeasured: setFullHeight,
@@ -636,6 +802,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "absolute",
     width: 56,
+  },
+  styleDone: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 24,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  styleTray: {
+    gap: 14,
+    left: 0,
+    position: "absolute",
+    right: 0,
   },
   title: {
     fontSize: 17,

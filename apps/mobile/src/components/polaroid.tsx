@@ -17,6 +17,7 @@ import type {
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import type { SharedValue } from "react-native-reanimated";
 
+import { SmoothEdges } from "@/components/smooth-edges";
 import {
   captionCaretRange,
   captionTilt,
@@ -141,209 +142,215 @@ export function Polaroid({
   ];
 
   return (
-    <View
-      style={[!flat && styles.shadow, { borderRadius: metrics.radius, width }]}
-    >
-      <Animated.View
-        ref={paperRef}
-        collapsable={false}
+    // Tilted by whatever holds it; drawn flat first so its edges stay smooth.
+    <SmoothEdges margin={EDGE_MARGIN}>
+      <View
         style={[
-          styles.paper,
-          { borderRadius: metrics.radius, height: metrics.height, width },
-          paperStyle,
+          !flat && styles.shadow,
+          { borderRadius: metrics.radius, width },
         ]}
       >
-        <TiledImage
-          resizeMode="repeat"
-          source={GRAIN}
-          style={[StyleSheet.absoluteFill, styles.grain]}
-        />
-        <View
+        <Animated.View
+          ref={paperRef}
+          collapsable={false}
           style={[
-            styles.photo,
-            {
-              borderRadius: metrics.photoRadius,
-              height: metrics.photoHeight,
-              left: metrics.padding,
-              top: metrics.padding,
-              width: metrics.photoWidth,
-            },
+            styles.paper,
+            { borderRadius: metrics.radius, height: metrics.height, width },
+            paperStyle,
           ]}
         >
-          <LinearGradient
-            colors={gradientForId(quote.id)}
-            end={{ x: 1, y: 1 }}
-            start={{ x: 0, y: 0 }}
-            style={StyleSheet.absoluteFill}
+          <TiledImage
+            resizeMode="repeat"
+            source={GRAIN}
+            style={[StyleSheet.absoluteFill, styles.grain]}
           />
-          {quote.imageUri ? (
-            <Image
-              cachePolicy="memory-disk"
-              contentFit="cover"
-              onDisplay={() => onImageSettled?.(true)}
-              onError={() => onImageSettled?.(false)}
-              recyclingKey={quote.imageUri}
-              source={quote.imageUri}
-              style={StyleSheet.absoluteFill}
-              transition={0}
-            />
-          ) : null}
-          {/* Instant film: warm, with blacks that never go fully black. */}
-          <View pointerEvents="none" style={styles.film} />
-          {/* The photo sits a little below the frame, which shades its top. */}
-          <LinearGradient
-            colors={["rgba(0,0,0,0.22)", "rgba(0,0,0,0)"]}
-            pointerEvents="none"
-            style={[styles.recess, { height: metrics.padding * 0.6 }]}
-          />
-        </View>
-        {/* Handling: darker edges under roller lines and scuffs. Both stretch
-            with the paper, so its edges stay worn where they are. */}
-        <Image
-          contentFit="fill"
-          pointerEvents="none"
-          source={EDGES[wear.edges.index]}
-          style={[StyleSheet.absoluteFill, { transform: flip(wear.edges) }]}
-        />
-        <Image
-          contentFit="fill"
-          pointerEvents="none"
-          source={MARKS[wear.marks.index]}
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              transform: [
-                { translateX: wear.marks.shiftX * width },
-                { translateY: wear.marks.shiftY * metrics.height },
-                { scale: wear.marks.scale },
-                ...flip(wear.marks),
-              ],
-            },
-          ]}
-        />
-
-        {focus ? (
           <View
             style={[
-              styles.caption,
-              lean,
+              styles.photo,
               {
-                left: metrics.captionInset,
-                paddingTop: captionTopPadding(metrics, typography, lineCount),
-                right: metrics.captionInset,
-                top: metrics.captionTop,
+                borderRadius: metrics.photoRadius,
+                height: metrics.photoHeight,
+                left: metrics.padding,
+                top: metrics.padding,
+                width: metrics.photoWidth,
               },
             ]}
           >
-            {/* The written caption stays put while it is edited: a see-through
-                input laid over it only adds the caret and the selection. */}
-            <View>
+            <LinearGradient
+              colors={gradientForId(quote.id)}
+              end={{ x: 1, y: 1 }}
+              start={{ x: 0, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            {quote.imageUri ? (
+              <Image
+                cachePolicy="memory-disk"
+                contentFit="cover"
+                onDisplay={() => onImageSettled?.(true)}
+                onError={() => onImageSettled?.(false)}
+                recyclingKey={quote.imageUri}
+                source={quote.imageUri}
+                style={StyleSheet.absoluteFill}
+                transition={0}
+              />
+            ) : null}
+            {/* Instant film: warm, with blacks that never go fully black. */}
+            <View pointerEvents="none" style={styles.film} />
+            {/* The photo sits a little below the frame, which shades its top. */}
+            <LinearGradient
+              colors={["rgba(0,0,0,0.22)", "rgba(0,0,0,0)"]}
+              pointerEvents="none"
+              style={[styles.recess, { height: metrics.padding * 0.6 }]}
+            />
+          </View>
+          {/* Handling: darker edges under roller lines and scuffs. Both stretch
+              with the paper, so its edges stay worn where they are. */}
+          <Image
+            contentFit="fill"
+            pointerEvents="none"
+            source={EDGES[wear.edges.index]}
+            style={[StyleSheet.absoluteFill, { transform: flip(wear.edges) }]}
+          />
+          <Image
+            contentFit="fill"
+            pointerEvents="none"
+            source={MARKS[wear.marks.index]}
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                transform: [
+                  { translateX: wear.marks.shiftX * width },
+                  { translateY: wear.marks.shiftY * metrics.height },
+                  { scale: wear.marks.scale },
+                  ...flip(wear.marks),
+                ],
+              },
+            ]}
+          />
+
+          {focus ? (
+            <View
+              style={[
+                styles.caption,
+                lean,
+                {
+                  left: metrics.captionInset,
+                  paddingTop: captionTopPadding(metrics, typography, lineCount),
+                  right: metrics.captionInset,
+                  top: metrics.captionTop,
+                },
+              ]}
+            >
+              {/* The written caption stays put while it is edited: a see-through
+                  input laid over it only adds the caret and the selection. */}
+              <View>
+                <Text
+                  accessibilityHint={canEdit ? "Edits the quote" : undefined}
+                  allowFontScaling={false}
+                  onLayout={(event) =>
+                    setQuoteHeight(event.nativeEvent.layout.height)
+                  }
+                  onPress={
+                    canEdit ? (event) => beginEditing("text", event) : undefined
+                  }
+                  onTextLayout={(event) => {
+                    lines.current.text = event.nativeEvent.lines;
+                  }}
+                  style={quoteStyle}
+                  suppressHighlighting
+                >
+                  {quoteText}
+                </Text>
+                {draft?.field === "text" ? (
+                  <TextInput
+                    {...inputProps}
+                    accessibilityLabel="Quote"
+                    maxLength={502}
+                    multiline
+                    onBlur={() => finishEditing("text")}
+                    // A text view that cannot scroll drops the last line when
+                    // its frame is a hair too short, so this one can and gets
+                    // slack below instead.
+                    style={[
+                      quoteStyle,
+                      styles.input,
+                      {
+                        bottom: -typography.lineHeight / 4,
+                        marginBottom: 0,
+                        paddingBottom: 0,
+                      },
+                    ]}
+                  >
+                    {quoteText}
+                  </TextInput>
+                ) : null}
+              </View>
+              <View>
+                <Animated.Text
+                  accessibilityHint={canEdit ? "Edits the person" : undefined}
+                  adjustsFontSizeToFit
+                  allowFontScaling={false}
+                  numberOfLines={1}
+                  onPress={
+                    canEdit
+                      ? (event) => beginEditing("speaker", event)
+                      : undefined
+                  }
+                  onTextLayout={(event) => {
+                    lines.current.speaker = event.nativeEvent.lines;
+                  }}
+                  style={[styles.speaker, ...speaker]}
+                  suppressHighlighting
+                >
+                  {speakerText}
+                </Animated.Text>
+                {draft?.field === "speaker" ? (
+                  <TextInput
+                    {...inputProps}
+                    accessibilityLabel="Person"
+                    autoCapitalize="words"
+                    maxLength={102}
+                    onBlur={() => finishEditing("speaker")}
+                    style={[styles.speaker, ...speaker, styles.input]}
+                  >
+                    {speakerText}
+                  </TextInput>
+                ) : null}
+              </View>
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.caption,
+                styles.wallCaption,
+                lean,
+                {
+                  height: metrics.captionHeight,
+                  left: metrics.captionInset,
+                  right: metrics.captionInset,
+                  top: metrics.captionTop,
+                },
+              ]}
+            >
               <Text
-                accessibilityHint={canEdit ? "Edits the quote" : undefined}
                 allowFontScaling={false}
-                onLayout={(event) =>
-                  setQuoteHeight(event.nativeEvent.layout.height)
-                }
-                onPress={
-                  canEdit ? (event) => beginEditing("text", event) : undefined
-                }
-                onTextLayout={(event) => {
-                  lines.current.text = event.nativeEvent.lines;
-                }}
+                numberOfLines={typography.maxLines}
                 style={quoteStyle}
-                suppressHighlighting
               >
                 {quoteText}
               </Text>
-              {draft?.field === "text" ? (
-                <TextInput
-                  {...inputProps}
-                  accessibilityLabel="Quote"
-                  maxLength={502}
-                  multiline
-                  onBlur={() => finishEditing("text")}
-                  // A text view that cannot scroll drops the last line when
-                  // its frame is a hair too short, so this one can and gets
-                  // slack below instead.
-                  style={[
-                    quoteStyle,
-                    styles.input,
-                    {
-                      bottom: -typography.lineHeight / 4,
-                      marginBottom: 0,
-                      paddingBottom: 0,
-                    },
-                  ]}
-                >
-                  {quoteText}
-                </TextInput>
-              ) : null}
-            </View>
-            <View>
-              <Animated.Text
-                accessibilityHint={canEdit ? "Edits the person" : undefined}
-                adjustsFontSizeToFit
+              <Text
                 allowFontScaling={false}
                 numberOfLines={1}
-                onPress={
-                  canEdit
-                    ? (event) => beginEditing("speaker", event)
-                    : undefined
-                }
-                onTextLayout={(event) => {
-                  lines.current.speaker = event.nativeEvent.lines;
-                }}
                 style={[styles.speaker, ...speaker]}
-                suppressHighlighting
               >
                 {speakerText}
-              </Animated.Text>
-              {draft?.field === "speaker" ? (
-                <TextInput
-                  {...inputProps}
-                  accessibilityLabel="Person"
-                  autoCapitalize="words"
-                  maxLength={102}
-                  onBlur={() => finishEditing("speaker")}
-                  style={[styles.speaker, ...speaker, styles.input]}
-                >
-                  {speakerText}
-                </TextInput>
-              ) : null}
+              </Text>
             </View>
-          </View>
-        ) : (
-          <View
-            style={[
-              styles.caption,
-              styles.wallCaption,
-              lean,
-              {
-                height: metrics.captionHeight,
-                left: metrics.captionInset,
-                right: metrics.captionInset,
-                top: metrics.captionTop,
-              },
-            ]}
-          >
-            <Text
-              allowFontScaling={false}
-              numberOfLines={typography.maxLines}
-              style={quoteStyle}
-            >
-              {quoteText}
-            </Text>
-            <Text
-              allowFontScaling={false}
-              numberOfLines={1}
-              style={[styles.speaker, ...speaker]}
-            >
-              {speakerText}
-            </Text>
-          </View>
-        )}
-      </Animated.View>
-    </View>
+          )}
+        </Animated.View>
+      </View>
+    </SmoothEdges>
   );
 }
 
@@ -436,6 +443,8 @@ function useCaptionEditing(quote: QuoteRecord, editing?: PolaroidEditing) {
   };
 }
 
+/** Room around the polaroid for its shadow; see SmoothEdges. */
+const EDGE_MARGIN = 10;
 const INK = "#1B1B20";
 const PAPER = "#F3F2EE";
 const GRAIN = require("../../assets/images/paper/grain.png");
