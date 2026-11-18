@@ -1,6 +1,7 @@
 import "react-native-gesture-handler";
 import { useFonts } from "expo-font";
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import {
   SafeAreaProvider,
@@ -20,6 +21,12 @@ const CAPTION_FONTS = {
   Mynerve: require("../../assets/fonts/Mynerve.ttf"),
   ShadowsIntoLight: require("../../assets/fonts/ShadowsIntoLight.ttf"),
 };
+
+// The splash stays up while fonts and quotes load; the wall's launch intro
+// takes over from it in the same place and hides it.
+SplashScreen.preventAutoHideAsync();
+// Never stranded on the splash if the intro does not get to run.
+setTimeout(SplashScreen.hide, 6000);
 
 export default function RootLayout() {
   const [fontsLoaded, fontsError] = useFonts(CAPTION_FONTS);
@@ -66,7 +73,8 @@ function RootNavigator() {
         <Stack.Screen name="index" />
         <Stack.Screen
           name="quotes"
-          options={{ animation: "slide_from_right", title: "All Quotes" }}
+          // The first screen: it does not slide in over the splash at launch.
+          options={{ animation: "none", title: "All Quotes" }}
         />
         <Stack.Screen
           name="profile"

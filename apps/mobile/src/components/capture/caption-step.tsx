@@ -2,7 +2,9 @@ import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { Check } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
+import type { HostInstance } from "react-native";
 import { useEffect, useState } from "react";
+import type { RefObject } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -29,6 +31,10 @@ export interface CaptionPolaroid {
   onAlign: (align: QuoteAlign) => void;
   onFont: (font: QuoteFont) => void;
   speaker: string;
+  /** Measures where the polaroid is, for the saved print to lift from. */
+  frameRef?: RefObject<HostInstance | null>;
+  /** Lifted off by the saved print, which is drawn in its place. */
+  hidden?: boolean;
 }
 
 /**
@@ -111,11 +117,9 @@ export function CaptionStep({
             style={styles.stage}
           >
             {stage ? (
-              <DraftPolaroid
-                align={polaroid.align}
-                font={polaroid.font}
+              <StagePolaroid
                 imageUri={imageUri}
-                speaker={polaroid.speaker.trim()}
+                polaroid={polaroid}
                 text={value.trim()}
                 width={polaroidWidth}
               />
@@ -279,6 +283,36 @@ export function CaptionStep({
  * Whether the on-screen keyboard is up. With a hardware keyboard attached the
  * system still reports one, only with no height above the screen's edge.
  */
+/** The polaroid being written, which the saved print later lifts off. */
+function StagePolaroid({
+  imageUri,
+  polaroid,
+  text,
+  width,
+}: {
+  imageUri: string | null;
+  polaroid: CaptionPolaroid;
+  text: string;
+  width: number;
+}) {
+  return (
+    <View
+      collapsable={false}
+      ref={polaroid.frameRef}
+      style={polaroid.hidden ? styles.hidden : undefined}
+    >
+      <DraftPolaroid
+        align={polaroid.align}
+        font={polaroid.font}
+        imageUri={imageUri}
+        speaker={polaroid.speaker.trim()}
+        text={text}
+        width={width}
+      />
+    </View>
+  );
+}
+
 function useKeyboardShown(bottomInset: number) {
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -299,6 +333,9 @@ function useKeyboardShown(bottomInset: number) {
 const LEADING_SIZE = 44;
 
 const styles = StyleSheet.create({
+  hidden: {
+    opacity: 0,
+  },
   leadingPlain: {
     alignItems: "center",
     borderRadius: LEADING_SIZE / 2,

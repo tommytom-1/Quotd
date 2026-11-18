@@ -2,7 +2,15 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ChevronLeft, Plus } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ReactNode } from "react";
 import {
   Platform,
   Pressable,
@@ -11,12 +19,11 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import type { ListRenderItem } from "react-native";
+import type { FlatList, ListRenderItem } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
   FadeIn,
-  FadeInDown,
   FadeOut,
   useAnimatedScrollHandler,
   useAnimatedStyle,
@@ -35,6 +42,7 @@ import {
   BOTTOM_NAVIGATION_HEIGHT,
   hasNativeIosToolbar,
 } from "@/components/bottom-navigation";
+import { LaunchIntro } from "@/components/launch-intro";
 import { LoadingScreen } from "@/components/loading-screen";
 import { PeoplePicker } from "@/components/people-picker";
 import { QuoteFocus } from "@/components/quote-focus";
@@ -46,6 +54,7 @@ import { playSelectionHaptic } from "@/lib/haptics";
 import {
   setPeoplePickerOpen,
   setWallPerson,
+  useArrivingQuote,
   usePeoplePickerOpen,
   useWallPerson,
 } from "@/lib/home-view";
@@ -58,9 +67,98 @@ const WALL_HEADER_HEIGHT = 74;
 const ALL_QUOTES = "All Quotes";
 /** Polaroids that drop in one by one when a wall opens; the rest are offscreen. */
 const ARRIVING = 5;
-/** How long the old wall takes to clear, and the new one to fade up after it. */
+/** How long the old wall takes to clear, and the new one to fade up. */
 const WALL_OUT_MS = 150;
 const WALL_IN_MS = 220;
+/** Switching walls: each polaroid drops in a little after the one above. */
+const DROP_STAGGER_MS = 70;
+const DROP_MS = 340;
+const DROP_TOTAL_MS = (ARRIVING - 1) * DROP_STAGGER_MS + DROP_MS;
+/**
+ * A new wall's first polaroids each load a photo and snapshot themselves,
+ * which stalls drawing; the reveal waits until they have, or this long at most.
+ */
+const DROP_WAIT_MAX_MS = 700;
+/** Launch: when the first polaroid is dealt, then each after the one before. */
+const DEAL_START_MS = 140;
+const DEAL_STAGGER_MS = 90;
+const DEAL_MS = 460;
+
+/** The whole deal, from the logo lifting to the last polaroid landing. */
+const DEAL_TOTAL_MS =
+  DEAL_START_MS + (ARRIVING - 1) * DEAL_STAGGER_MS + DEAL_MS;
+
+/**
+ * How a new wall's first polaroids arrive, on one shared clock running 0 to 1.
+ * A clock rather than an entering animation, so the wall can be built out of
+ * sight (behind the splash, or under the people picker) and only set moving
+ * once it is ready; building it stalls a frame or two that would eat the motion.
+ */
+interface WallArrival {
+  clock: SharedValue<number>;
+  /** Dealt up from below at launch; dropped in when switching walls. */
+  mode: "deal" | "drop";
+}
+
+/** Launch deals the first wall in on the parent's clock; a wall switched to
+ * runs its own drop, once its polaroids are actually built. */
+type WallEntrance =
+  | { mode: "deal"; clock: SharedValue<number> }
+  | { mode: "drop"; onStart: () => void };
+
+/** Dealt: up from below, turning straight. Dropped: down a little, fading in. */
+function ArriveIn({
+  arrival,
+  children,
+  index,
+}: {
+  arrival: WallArrival;
+  children: ReactNode;
+  index: number;
+}) {
+  const { clock, mode } = arrival;
+  const turn = index % 2 === 0 ? -8 : 7;
+  const style = useAnimatedStyle(() => {
+    const dealt = mode === "deal";
+    const elapsed = clock.value * (dealt ? DEAL_TOTAL_MS : DROP_TOTAL_MS);
+    const start = dealt
+      ? DEAL_START_MS + index * DEAL_STAGGER_MS
+      : index * DROP_STAGGER_MS;
+    const linear = Math.min(
+      Math.max((elapsed - start) / (dealt ? DEAL_MS : DROP_MS), 0),
+      1
+    );
+    const eased = 1 - (1 - linear) ** 3;
+    if (!dealt) {
+      return {
+        opacity: eased,
+        transform: [{ translateY: -28 * (1 - eased) }],
+      };
+    }
+    return {
+      opacity: Math.min(linear / 0.3, 1),
+      transform: [
+        { translateY: 360 * (1 - eased) },
+        { rotate: `${turn * (1 - eased)}deg` },
+        { scale: 0.75 + 0.25 * eased },
+      ],
+    };
+  });
+  return <Animated.View style={style}>{children}</Animated.View>;
+}
+
+/**
+ * Whether something shown while `open` is still on screen: it stays after
+ * closing until `hide` reports it has finished fading away.
+ */
+function useLingering(open: boolean) {
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) {
+    setMounted(true);
+  }
+  const hide = useCallback(() => setMounted(false), []);
+  return [mounted, hide] as const;
+}
 
 interface QuoteSelection {
   origin: WallPolaroidOrigin;
@@ -73,9 +171,32 @@ export default function QuotesScreen() {
   const { isLoading, palette, quotes, resolvedTheme, speakers } = useApp();
   const personId = useWallPerson();
   const pickerOpen = usePeoplePickerOpen();
+  const [pickerMounted, hidePicker] = useLingering(pickerOpen);
   const [selection, setSelection] = useState<QuoteSelection | null>(null);
-  // The first wall is simply there; walls switched to afterwards arrive.
+  // The first wall is dealt in at launch; walls switched to afterwards drop in.
   const [hasSwitched, setHasSwitched] = useState(false);
+  // The splash's stand-in, until it has cleared off the first wall.
+  const [launching, setLaunching] = useState(true);
+  // The first wall is built under the splash, then dealt in as the logo lifts.
+  const [wallLaidOut, setWallLaidOut] = useState(false);
+  const deal = useSharedValue(0);
+  const reduceMotion = useReducedMotion();
+  const startDeal = useCallback(() => {
+    deal.value = reduceMotion
+      ? 1
+      : withTiming(1, { duration: DEAL_TOTAL_MS, easing: Easing.linear });
+  }, [deal, reduceMotion]);
+  const finishLaunch = useCallback(() => setLaunching(false), []);
+  const dealEntrance = useMemo<WallEntrance>(
+    () => ({ clock: deal, mode: "deal" }),
+    [deal]
+  );
+  // A wall switched to drops in once its polaroids are built, under the
+  // picker if that is open, which then lifts off it.
+  const dropEntrance = useMemo<WallEntrance>(
+    () => ({ mode: "drop", onStart: () => setPeoplePickerOpen(false) }),
+    []
+  );
   const hiddenId = useSharedValue<string | null>(null);
   const focusedIndex = useSharedValue(-1);
   const uncover = useSharedValue(0);
@@ -89,6 +210,20 @@ export default function QuotesScreen() {
   const displayedQuotes = current ? current.quotes : allQuotes;
   const title = current ? current.person.name : ALL_QUOTES;
   const polaroidWidth = Math.min(width * 0.67, 330);
+
+  // A quote just saved lands on the wall it belongs to: this one if it is
+  // theirs, otherwise everyone's.
+  const arriving = useArrivingQuote();
+  const arrivingId = arriving?.id ?? null;
+  useEffect(() => {
+    if (!arrivingId) {
+      return;
+    }
+    setPeoplePickerOpen(false);
+    if (current && !current.quotes.some((quote) => quote.id === arrivingId)) {
+      setWallPerson(null);
+    }
+  }, [arrivingId, current]);
 
   // A person whose last quote was deleted no longer has a wall.
   useEffect(() => {
@@ -104,12 +239,13 @@ export default function QuotesScreen() {
   );
 
   const showWall = (id: string | null) => {
-    setPeoplePickerOpen(false);
-    if (id !== personId) {
-      void playSelectionHaptic();
-      setHasSwitched(true);
-      setWallPerson(id);
+    if (id === personId) {
+      setPeoplePickerOpen(false);
+      return;
     }
+    void playSelectionHaptic();
+    setHasSwitched(true);
+    setWallPerson(id);
   };
 
   const openCapture = async () => {
@@ -128,23 +264,19 @@ export default function QuotesScreen() {
       style={[styles.safeArea, { backgroundColor: palette.background }]}
     >
       <WallBackground />
-      {isLoading ? (
-        <LoadingScreen />
-      ) : (
+      {isLoading ? <LoadingScreen /> : null}
+      {isLoading ? null : (
         // Each wall is its own list, starting from the top. The old wall is
         // gone before the next arrives, so the two never show through each other.
         <Animated.View
-          entering={
-            hasSwitched
-              ? FadeIn.delay(WALL_OUT_MS).duration(WALL_IN_MS)
-              : undefined
-          }
+          entering={hasSwitched ? FadeIn.duration(WALL_IN_MS) : undefined}
           exiting={FadeOut.duration(WALL_OUT_MS)}
           key={personId ?? "all"}
+          onLayout={() => setWallLaidOut(true)}
           style={StyleSheet.absoluteFill}
         >
           <WallList
-            animateIn={hasSwitched}
+            entrance={hasSwitched ? dropEntrance : dealEntrance}
             focusedIndex={focusedIndex}
             hiddenId={hiddenId}
             onAdd={openCapture}
@@ -158,9 +290,11 @@ export default function QuotesScreen() {
         </Animated.View>
       )}
 
-      {pickerOpen && !isLoading ? (
+      {pickerMounted && !isLoading ? (
         <PeoplePicker
           onClose={() => setPeoplePickerOpen(false)}
+          onHidden={hidePicker}
+          open={pickerOpen}
           onSelect={showWall}
           people={people}
           quoteCount={quotes.length}
@@ -169,7 +303,8 @@ export default function QuotesScreen() {
       ) : null}
 
       <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
-      <BottomNavigation onAdd={openCapture} />
+      {/* iOS draws this bar natively, above everything, so it waits for the wall. */}
+      {isLoading ? null : <BottomNavigation onAdd={openCapture} />}
 
       {selection ? (
         <QuoteFocus
@@ -187,12 +322,20 @@ export default function QuotesScreen() {
           title={title}
         />
       ) : null}
+
+      {launching ? (
+        <LaunchIntro
+          onDone={finishLaunch}
+          onReveal={startDeal}
+          ready={wallLaidOut}
+        />
+      ) : null}
     </View>
   );
 }
 
 function WallList({
-  animateIn,
+  entrance,
   focusedIndex,
   hiddenId,
   onAdd,
@@ -203,8 +346,8 @@ function WallList({
   title,
   uncover,
 }: {
-  /** Drops the first polaroids in one after another as the wall opens. */
-  animateIn: boolean;
+  /** How the first polaroids arrive as the wall opens. */
+  entrance: WallEntrance;
   focusedIndex: SharedValue<number>;
   hiddenId: SharedValue<string | null>;
   onAdd: () => void;
@@ -222,6 +365,66 @@ function WallList({
   const scrollY = useSharedValue(0);
   const metrics = polaroidMetrics(polaroidWidth);
   const scrollTopInset = Platform.OS === "ios" ? insets.top : 0;
+  const listRef = useRef<FlatList<QuoteRecord>>(null);
+  const reduceMotion = useReducedMotion();
+
+  // A fresh clock per wall, so it is at the start on the wall's first frame.
+  // A wall opened for a quote just saved is already in place: that quote
+  // flies in on its own.
+  const arriving = useArrivingQuote();
+  const opensForArrival = useRef(arriving !== null).current;
+  const dropClock = useSharedValue(opensForArrival ? 1 : 0);
+  const dropStarted = useRef(opensForArrival);
+  const arrival = useMemo<WallArrival>(
+    () =>
+      entrance.mode === "deal"
+        ? { clock: entrance.clock, mode: "deal" }
+        : { clock: dropClock, mode: "drop" },
+    [dropClock, entrance]
+  );
+  // Building the polaroids stalls drawing, which would eat the drop: it
+  // starts once the first ones have settled.
+  const startDrop = () => {
+    if (entrance.mode !== "drop" || dropStarted.current) {
+      return;
+    }
+    dropStarted.current = true;
+    const { onStart } = entrance;
+    requestAnimationFrame(() => {
+      onStart();
+      dropClock.value = reduceMotion
+        ? 1
+        : withTiming(1, { duration: DROP_TOTAL_MS, easing: Easing.linear });
+    });
+  };
+  const startDropRef = useRef(startDrop);
+  startDropRef.current = startDrop;
+  const awaiting = useRef(Math.min(quotes.length, ARRIVING));
+  const settleOne = useCallback(() => {
+    awaiting.current -= 1;
+    if (awaiting.current === 0) {
+      startDropRef.current();
+    }
+  }, []);
+  useEffect(() => {
+    if (awaiting.current <= 0) {
+      startDropRef.current();
+      return;
+    }
+    const timer = setTimeout(() => startDropRef.current(), DROP_WAIT_MAX_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // A quote just saved lands in the top slot, so the wall goes back up to it.
+  const arrivingId = arriving?.id ?? null;
+  useLayoutEffect(() => {
+    if (arrivingId) {
+      listRef.current?.scrollToOffset({
+        animated: false,
+        offset: -scrollTopInset,
+      });
+    }
+  }, [arrivingId, scrollTopInset]);
   const onScroll = useAnimatedScrollHandler((event) => {
     // UIKit starts at a negative content offset for the automatic safe-area inset.
     scrollY.value = event.contentOffset.y + scrollTopInset;
@@ -240,22 +443,30 @@ function WallList({
           scrollY={scrollY}
           uncover={uncover}
           width={polaroidWidth}
+          // Only the arriving quote and those it pushes down are told, so the
+          // rest of the wall does not redraw.
+          arrival={arriving?.id === item.id ? arriving : null}
+          onSettled={index < ARRIVING ? settleOne : undefined}
+          makingRoom={
+            arriving !== null &&
+            arriving.id !== item.id &&
+            index > 0 &&
+            index <= ARRIVING
+          }
         />
       );
-      return animateIn && index < ARRIVING ? (
-        <Animated.View
-          entering={FadeInDown.delay(WALL_OUT_MS + 40 + index * 70)
-            .duration(320)
-            .easing(Easing.out(Easing.cubic))}
-        >
+      if (index >= ARRIVING) {
+        return polaroid;
+      }
+      return (
+        <ArriveIn arrival={arrival} index={index}>
           {polaroid}
-        </Animated.View>
-      ) : (
-        polaroid
+        </ArriveIn>
       );
     },
     [
-      animateIn,
+      arrival,
+      arriving,
       focusedIndex,
       hiddenId,
       onOpen,
@@ -268,6 +479,10 @@ function WallList({
 
   return (
     <Animated.FlatList<QuoteRecord>
+      ref={listRef}
+      // The wall's top sits above zero, under the status bar's inset; without
+      // this, scrolling back up to it stops short.
+      scrollToOverflowEnabled
       // Earlier polaroids lie on top of the ones that follow.
       CellRendererComponentStyle={({ index }) => ({
         zIndex: quotes.length - index,

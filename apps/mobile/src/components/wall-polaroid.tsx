@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   PixelRatio,
   Platform,
@@ -10,13 +10,20 @@ import {
 import type { HostInstance } from "react-native";
 import Animated, {
   createAnimatedComponent,
+  Easing,
   useAnimatedProps,
   useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withTiming,
 } from "react-native-reanimated";
 import type { SharedValue } from "react-native-reanimated";
 import { captureRef, releaseCapture } from "react-native-view-shot";
 
 import { Polaroid } from "@/components/polaroid";
+import { setArrivingQuote } from "@/lib/home-view";
+import type { ArrivingQuote } from "@/lib/home-view";
 import {
   exitPose,
   exitProgress,
@@ -34,6 +41,13 @@ const AnimatedImage = createAnimatedComponent(Image);
 const SNAPSHOT_PIXELS = 330;
 const SOFT_BLUR = 7;
 const HEAVY_BLUR = 22;
+/** A saved print flying from the capture screen into the top slot. */
+const FLY_MS = 620;
+/** The polaroids already there shuffle down a slot to make room. */
+const SHUFFLE_DELAY_MS = 80;
+const SHUFFLE_MS = 480;
+/** A beat for the wall to settle after the hand-off, so no frame is lost. */
+const FLY_DELAY_MS = 60;
 
 /** Where a wall polaroid was on screen when it was opened. */
 export interface WallPolaroidOrigin {
@@ -57,6 +71,13 @@ interface WallPolaroidProps {
   /** 0–1: how far the polaroids lying over the focused one have faded away. */
   uncover: SharedValue<number>;
   onOpen: (quote: QuoteRecord, origin: WallPolaroidOrigin) => void;
+  /** Set while this quote, just saved, flies in from its developed print. */
+  arrival?: ArrivingQuote | null;
+  /** Another quote is arriving above this one: shuffle down to make room. */
+  makingRoom?: boolean;
+  /** Called once its photo has loaded and its snapshot is taken: the heavy
+   * part of drawing it is over. */
+  onSettled?: () => void;
 }
 
 export const WallPolaroid = memo(
@@ -70,6 +91,9 @@ export const WallPolaroid = memo(
     focusedIndex,
     uncover,
     onOpen,
+    arrival = null,
+    makingRoom = false,
+    onSettled,
   }: WallPolaroidProps) => {
     const slotRef = useRef<HostInstance>(null);
     const snapshotRef = useRef<HostInstance>(null);
@@ -85,6 +109,82 @@ export const WallPolaroid = memo(
     const bleed = width * 0.14;
     const snapshotWidth = width + bleed * 2;
     const snapshotHeight = metrics.height + bleed * 2;
+
+    // A quote just saved flies in from where its print developed; the
+    // polaroids already on the wall start a slot higher and shuffle down.
+    const reduceMotion = useReducedMotion();
+    const fly = useSharedValue(0);
+    const flyFrom = useSharedValue({ dx: 0, dy: 0, rotate: 0, scale: 1 });
+    const awaitingFlight = useSharedValue(false);
+    const shift = useSharedValue(0);
+
+    // Before paint, so the polaroid never shows in its slot ahead of the flight.
+    useLayoutEffect(() => {
+      if (!arrival) {
+        return;
+      }
+      if (reduceMotion) {
+        setArrivingQuote(null);
+        return;
+      }
+      awaitingFlight.set(true);
+      let landed: ReturnType<typeof setTimeout> | undefined;
+      // Two frames: one for the wall to scroll back to the top, one to draw it.
+      let frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          slotRef.current?.measureInWindow((x, y, slotWidth, slotHeight) => {
+            if (slotWidth > 0) {
+              const { from } = arrival;
+              flyFrom.set({
+                dx: from.x + from.width / 2 - (x + slotWidth / 2),
+                dy: from.y + from.height / 2 - (y + slotHeight / 2),
+                rotate: arrival.rotate - tilt,
+                scale: from.width / slotWidth,
+              });
+              fly.set(1);
+              fly.set(
+                withDelay(
+                  FLY_DELAY_MS,
+                  withTiming(0, {
+                    duration: FLY_MS,
+                    easing: Easing.bezier(0.45, 0, 0.2, 1),
+                  })
+                )
+              );
+            }
+            awaitingFlight.set(false);
+            landed = setTimeout(
+              () => setArrivingQuote(null),
+              FLY_DELAY_MS + FLY_MS
+            );
+          });
+        });
+      });
+      return () => {
+        cancelAnimationFrame(frame);
+        clearTimeout(landed);
+        awaitingFlight.set(false);
+      };
+    }, [arrival, awaitingFlight, fly, flyFrom, reduceMotion, tilt]);
+
+    useLayoutEffect(() => {
+      if (!makingRoom || reduceMotion) {
+        return;
+      }
+      shift.set(-1);
+      shift.set(
+        withDelay(
+          FLY_DELAY_MS + SHUFFLE_DELAY_MS,
+          withTiming(0, {
+            duration: SHUFFLE_MS,
+            easing: Easing.out(Easing.cubic),
+          })
+        )
+      );
+    }, [makingRoom, reduceMotion, shift]);
+
+    const onSettledRef = useRef(onSettled);
+    onSettledRef.current = onSettled;
 
     useEffect(() => {
       if (!imageSettled) {
@@ -117,6 +217,7 @@ export const WallPolaroid = memo(
           // Without a snapshot the polaroid still lifts off and fades.
           console.warn("[quotd-polaroid-snapshot]", error);
         }
+        onSettledRef.current?.();
       });
       return () => {
         cancelled = true;
@@ -144,13 +245,19 @@ export const WallPolaroid = memo(
       );
       // Polaroids stacked over the focused one clear out of its way.
       const stacked = index < focusedIndex.value ? 1 - uncover.value : 1;
+      const flight = fly.value;
+      const from = flyFrom.value;
+      const hidden = hiddenId.value === quoteId || awaitingFlight.value;
       return {
-        opacity: hiddenId.value === quoteId ? 0 : pose.opacity * stacked,
+        opacity: hidden ? 0 : pose.opacity * stacked,
         transform: [
-          { translateX: pose.translateX },
-          { translateY: pose.translateY },
-          { scale: pose.scale },
-          { rotate: `${pose.rotate}deg` },
+          { translateX: pose.translateX + from.dx * flight },
+          {
+            translateY:
+              pose.translateY + from.dy * flight + shift.value * metrics.step,
+          },
+          { scale: pose.scale * (1 + (from.scale - 1) * flight) },
+          { rotate: `${pose.rotate + from.rotate * flight}deg` },
         ],
       };
     });

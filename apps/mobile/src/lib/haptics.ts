@@ -15,3 +15,12 @@ export async function playSelectionHaptic() {
     console.warn("[quotd-haptics]", error);
   }
 }
+
+/** A soft tap, for small physical moments like a print being shaken. */
+export async function playLightHaptic() {
+  try {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } catch (error) {
+    console.warn("[quotd-haptics]", error);
+  }
+}

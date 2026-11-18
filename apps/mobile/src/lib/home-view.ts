@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import type { Frame } from "@/lib/polaroid";
+
 // Kept outside React so the bottom bar on any screen can read and change them.
 let personId: string | null = null;
 let pickerOpen = false;
@@ -41,4 +43,28 @@ export function setPeoplePickerOpen(open: boolean) {
 /** Whether the picker for whose quotes to show is open over the wall. */
 export function usePeoplePickerOpen() {
   return useSyncExternalStore(subscribe, () => pickerOpen);
+}
+
+/** A quote just saved, on its way from the capture screen to the wall. */
+export interface ArrivingQuote {
+  id: string;
+  /** Where its developed print was on screen, untilted. */
+  from: Frame;
+  /** The print's tilt, in degrees. */
+  rotate: number;
+}
+
+let arriving: ArrivingQuote | null = null;
+
+/** Hands a saved quote's print over to the wall, which flies it into place. */
+export function setArrivingQuote(next: ArrivingQuote | null) {
+  if (next !== arriving) {
+    arriving = next;
+    notify();
+  }
+}
+
+/** The quote flying onto the wall, or null once it has landed. */
+export function useArrivingQuote() {
+  return useSyncExternalStore(subscribe, () => arriving);
 }

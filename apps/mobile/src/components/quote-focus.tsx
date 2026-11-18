@@ -64,6 +64,17 @@ const SHARE_PAIR_OFFSET = 36;
 const KEYBOARD_GAP = 16;
 /** The lettering row (38) over the gap and the tick that closes it. */
 const STYLE_TRAY_HEIGHT = 38 + 14 + 48;
+/**
+ * Opening flies the polaroid off the wall with an even, unhurried curve: one
+ * that front-loads the move snaps most of the way at once, then crawls.
+ */
+const OPEN_MS = 460;
+const OPEN_EASING = Easing.bezier(0.33, 0, 0.15, 1);
+const CLOSE_MS = 360;
+const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
+/** The polaroids lying over the opened one clear away, and settle back. */
+const UNCOVER_MS = 180;
+const RECOVER_MS = 150;
 
 interface QuoteFocusProps {
   quote: QuoteRecord;
@@ -182,7 +193,9 @@ export function QuoteFocus({
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
-      const available = await canShareToInstagramStory();
+      // Development builds always show the button, so it can be seen in the
+      // simulator, which cannot install Instagram.
+      const available = __DEV__ || (await canShareToInstagramStory());
       if (!cancelled) {
         setCanStory(available);
       }
@@ -233,9 +246,13 @@ export function QuoteFocus({
   useEffect(() => {
     if (covered) {
       uncover.set(
-        withTiming(1, { duration: 140 }, () => {
-          runOnJS(setUncovered)(true);
-        })
+        withTiming(
+          1,
+          { duration: UNCOVER_MS, easing: Easing.out(Easing.quad) },
+          () => {
+            runOnJS(setUncovered)(true);
+          }
+        )
       );
     }
   }, [covered, uncover]);
@@ -256,15 +273,11 @@ export function QuoteFocus({
     hiddenId.set(quoteId);
     cardVisible.set(1);
     progress.set(
-      withTiming(
-        1,
-        { duration: 460, easing: Easing.bezier(0.2, 0.82, 0.2, 1) },
-        (finished) => {
-          if (finished) {
-            runOnJS(finishOpening)();
-          }
+      withTiming(1, { duration: OPEN_MS, easing: OPEN_EASING }, (finished) => {
+        if (finished) {
+          runOnJS(finishOpening)();
         }
-      )
+      })
     );
   }, [
     cardVisible,
@@ -296,7 +309,7 @@ export function QuoteFocus({
     };
   });
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: progressBetween(progress.value, 0, 0.6),
+    opacity: progressBetween(progress.value, 0, 0.75),
   }));
   const chromeStyle = useAnimatedStyle(() => ({
     opacity: progressBetween(progress.value, 0.6, 1),
@@ -322,21 +335,31 @@ export function QuoteFocus({
       }
       setTransitionComplete(false);
       if (!openingStarted.current) {
-        uncover.set(withTiming(0, { duration: 220 }));
+        uncover.set(
+          withTiming(0, {
+            duration: RECOVER_MS,
+            easing: Easing.out(Easing.quad),
+          })
+        );
         finishDismiss();
         return;
       }
       progress.set(
         withTiming(
           0,
-          { duration: 360, easing: Easing.bezier(0.4, 0, 0.2, 1) },
+          { duration: CLOSE_MS, easing: CLOSE_EASING },
           (finished) => {
             if (finished) {
               // The wall polaroid takes over before the modal unmounts.
               if (!keepHidden.value) {
                 hiddenId.set(null);
               }
-              uncover.set(withTiming(0, { duration: 220 }));
+              uncover.set(
+                withTiming(0, {
+                  duration: RECOVER_MS,
+                  easing: Easing.out(Easing.quad),
+                })
+              );
               runOnJS(finishDismiss)();
             }
           }

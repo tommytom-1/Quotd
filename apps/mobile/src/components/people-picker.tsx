@@ -1,5 +1,6 @@
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
+import { useEffect } from "react";
 import {
   Pressable,
   ScrollView,
@@ -9,10 +10,14 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  createAnimatedComponent,
   Easing,
-  FadeIn,
   FadeInDown,
-  FadeOut,
+  runOnJS,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -23,6 +28,11 @@ import { polaroidMetrics, polaroidPlacement } from "@/lib/polaroid";
 import type { PersonQuotes } from "@/lib/speaker-utils";
 
 const GUTTER = 18;
+const BLUR = 40;
+const SHOW_MS = 220;
+const HIDE_MS = 240;
+
+const AnimatedBlurView = createAnimatedComponent(BlurView);
 /**
  * Where the cards under someone's top polaroid sit: nudged by a share of the
  * card's width, and turned a few degrees further than it. Nearest first.
@@ -42,17 +52,22 @@ const CARD_EDGE_MARGIN = 26;
  * the blurred wall: one per person, showing their latest photo.
  */
 export function PeoplePicker({
+  open,
   people,
   quoteCount,
   selectedId,
   onClose,
+  onHidden,
   onSelect,
 }: {
+  /** Showing; once false it fades away, then reports it is hidden. */
+  open: boolean;
   people: PersonQuotes[];
   quoteCount: number;
   /** The person whose wall is showing, null for all quotes. */
   selectedId: string | null;
   onClose: () => void;
+  onHidden: () => void;
   onSelect: (id: string | null) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -65,14 +80,35 @@ export function PeoplePicker({
     people.filter((_, index) => index % 2 === 1),
   ];
 
+  // A fading parent does not fade an iOS blur, which would pop off at the
+  // end: the blur thins out instead, alongside everything drawn over it.
+  const shown = useSharedValue(0);
+  useEffect(() => {
+    shown.set(
+      withTiming(
+        open ? 1 : 0,
+        {
+          duration: open ? SHOW_MS : HIDE_MS,
+          easing: Easing.out(Easing.quad),
+        },
+        (finished) => {
+          if (finished && !open) {
+            runOnJS(onHidden)();
+          }
+        }
+      )
+    );
+  }, [onHidden, open, shown]);
+  const blurProps = useAnimatedProps(() => ({ intensity: BLUR * shown.value }));
+  const contentStyle = useAnimatedStyle(() => ({ opacity: shown.value }));
+
   return (
-    <Animated.View
-      entering={FadeIn.duration(220)}
-      exiting={FadeOut.duration(180)}
+    <View
+      pointerEvents={open ? "auto" : "none"}
       style={StyleSheet.absoluteFill}
     >
-      <BlurView
-        intensity={40}
+      <AnimatedBlurView
+        animatedProps={blurProps}
         tint={
           resolvedTheme === "dark"
             ? "systemThinMaterialDark"
@@ -80,79 +116,81 @@ export function PeoplePicker({
         }
         style={StyleSheet.absoluteFill}
       />
-      <Pressable
-        accessibilityLabel="Close people"
-        onPress={onClose}
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: palette.background, opacity: 0.45 },
-        ]}
-      />
-      <ScrollView
-        contentContainerStyle={{
-          paddingBottom: footerBottom + 84,
-          paddingTop: insets.top + 10,
-        }}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text
-          accessibilityRole="header"
-          style={[styles.title, { color: palette.text }]}
-        >
-          Whose quotes?
-        </Text>
-        {people.length === 0 ? (
-          <Text style={[styles.empty, { color: palette.textMuted }]}>
-            Everyone you quote will appear here.
-          </Text>
-        ) : (
-          <View style={styles.columns}>
-            {columns.map((column, side) => (
-              <View
-                // oxlint-disable-next-line react/no-array-index-key -- Always two columns.
-                key={side}
-                style={[styles.column, side === 1 && { marginTop: STAGGER }]}
-              >
-                {column.map((entry, row) => (
-                  <PersonCard
-                    entry={entry}
-                    // Cards land in reading order, left then right, row by row.
-                    order={row * 2 + side}
-                    key={entry.person.id}
-                    onPress={() => onSelect(entry.person.id)}
-                    selected={entry.person.id === selectedId}
-                    width={cardWidth}
-                  />
-                ))}
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-      <Animated.View
-        entering={FadeInDown.delay(120).duration(260)}
-        pointerEvents="box-none"
-        style={[styles.footer, { bottom: footerBottom + 16 }]}
-      >
+      <Animated.View style={[StyleSheet.absoluteFill, contentStyle]}>
         <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: selectedId === null }}
-          onPress={() => onSelect(null)}
-          style={({ pressed }) => [
-            styles.allButton,
-            { backgroundColor: palette.inverseSurface },
-            pressed && styles.pressed,
+          accessibilityLabel="Close people"
+          onPress={onClose}
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: palette.background, opacity: 0.45 },
           ]}
+        />
+        <ScrollView
+          contentContainerStyle={{
+            paddingBottom: footerBottom + 84,
+            paddingTop: insets.top + 10,
+          }}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={[styles.allText, { color: palette.inverseText }]}>
-            All quotes
+          <Text
+            accessibilityRole="header"
+            style={[styles.title, { color: palette.text }]}
+          >
+            Whose quotes?
           </Text>
-          <Text style={[styles.allCount, { color: palette.inverseText }]}>
-            {quoteCount}
-          </Text>
-        </Pressable>
+          {people.length === 0 ? (
+            <Text style={[styles.empty, { color: palette.textMuted }]}>
+              Everyone you quote will appear here.
+            </Text>
+          ) : (
+            <View style={styles.columns}>
+              {columns.map((column, side) => (
+                <View
+                  // oxlint-disable-next-line react/no-array-index-key -- Always two columns.
+                  key={side}
+                  style={[styles.column, side === 1 && { marginTop: STAGGER }]}
+                >
+                  {column.map((entry, row) => (
+                    <PersonCard
+                      entry={entry}
+                      // Cards land in reading order, left then right, row by row.
+                      order={row * 2 + side}
+                      key={entry.person.id}
+                      onPress={() => onSelect(entry.person.id)}
+                      selected={entry.person.id === selectedId}
+                      width={cardWidth}
+                    />
+                  ))}
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+        <Animated.View
+          entering={FadeInDown.delay(120).duration(260)}
+          pointerEvents="box-none"
+          style={[styles.footer, { bottom: footerBottom + 16 }]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: selectedId === null }}
+            onPress={() => onSelect(null)}
+            style={({ pressed }) => [
+              styles.allButton,
+              { backgroundColor: palette.inverseSurface },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.allText, { color: palette.inverseText }]}>
+              All quotes
+            </Text>
+            <Text style={[styles.allCount, { color: palette.inverseText }]}>
+              {quoteCount}
+            </Text>
+          </Pressable>
+        </Animated.View>
       </Animated.View>
-    </Animated.View>
+    </View>
   );
 }
 

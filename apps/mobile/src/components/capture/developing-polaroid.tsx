@@ -1,113 +1,240 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
+import type { HostInstance } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withDelay,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 
 import { DraftPolaroid } from "@/components/capture/draft-polaroid";
 import { useApp } from "@/context/app-context";
+import { playLightHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { polaroidMetrics } from "@/lib/polaroid";
+import type { Frame } from "@/lib/polaroid";
 import type { QuoteAlign, QuoteFont } from "@/lib/types";
 
-/** How long the print takes to develop before handing back to the wall. */
-const DURATION = 2000;
-/** The milky wash a fresh print starts under. */
+/** The milky wash a fresh print clears from. */
 const FILM = "#F4F4F2";
+/** The tilt the print settles at, in degrees. */
+export const PRINT_TILT = 1.5;
+/** Lifting off the page into the middle of the screen. */
+const LIFT_MS = 320;
+/** The shakes: where each swings to, and how long each swing takes. */
+const SHAKES = [
+  { rotate: -7, ms: 95 },
+  { rotate: 7, ms: 120 },
+  { rotate: -5, ms: 115 },
+  { rotate: 3.5, ms: 105 },
+] as const;
+const SETTLE_MS = 260;
+/** How milky the photo turns as it lifts, and how much each shake clears. */
+const FILM_START = 0.5;
+/** A beat to look at the finished print before it goes to the wall. */
+const HOLD_MS = 380;
+
+const SHAKE_MS = SHAKES.reduce((total, shake) => total + shake.ms, 0);
+const DONE_MS = LIFT_MS + SHAKE_MS + SETTLE_MS + HOLD_MS;
+
+function clearAll(timers: ReturnType<typeof setTimeout>[]) {
+  for (const timer of timers) {
+    clearTimeout(timer);
+  }
+}
 
 /**
- * The payoff for saving: the finished polaroid settles into place and its
- * photo develops, from a milky wash to full colour, like an instant print.
+ * The payoff for saving. The polaroid just written lifts off the page as it
+ * is, picks up a faint milky film, and is given a few quick shakes, like a
+ * real instant print, the photo clearing a little with each one. It then
+ * settles, and once the quote is saved hands its place on screen to the wall.
  */
 export function DevelopingPolaroid({
   align,
   font,
+  from,
   imageUri,
   onDone,
+  saved,
   speaker,
   text,
 }: {
   align?: QuoteAlign;
   font?: QuoteFont;
+  /** Where the polaroid being written was, to lift it from there. */
+  from: Frame | null;
   imageUri: string | null;
-  onDone: () => void;
+  /** Shaken and saved: where the print is on screen, for the wall. */
+  onDone: (print: Frame | null) => void;
+  /** The quote has been kept; until then the print waits, settled. */
+  saved: boolean;
   speaker: string;
   text: string;
 }) {
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const { palette, resolvedTheme } = useApp();
+  const reduceMotion = useReducedMotion();
   const polaroidWidth = Math.min(width - 96, 300);
   const metrics = polaroidMetrics(polaroidWidth);
+  const printRef = useRef<HostInstance>(null);
+  const [shaken, setShaken] = useState(false);
+
+  // Where the print starts, relative to where it ends up in the middle.
+  const start = from
+    ? {
+        scale: from.width / polaroidWidth,
+        x: from.x + from.width / 2 - width / 2,
+        y: from.y + from.height / 2 - height / 2,
+      }
+    : { scale: 0.9, x: 0, y: 24 };
   const backdrop = useSharedValue(0);
-  const settle = useSharedValue(0);
-  const film = useSharedValue(1);
+  const lift = useSharedValue(0);
+  const rotate = useSharedValue(0);
+  const film = useSharedValue(0);
 
   useEffect(() => {
-    const ease = Easing.out(Easing.cubic);
-    backdrop.value = withTiming(1, { duration: 180, easing: ease });
-    settle.value = withDelay(
-      60,
-      withTiming(1, { duration: 520, easing: ease })
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const later = (ms: number, run: () => void) =>
+      timers.push(setTimeout(run, ms));
+    const ease = Easing.inOut(Easing.cubic);
+    backdrop.set(withTiming(1, { duration: 220, easing: ease }));
+    lift.set(withTiming(1, { duration: LIFT_MS, easing: ease }));
+
+    if (reduceMotion) {
+      rotate.set(withTiming(PRINT_TILT, { duration: LIFT_MS }));
+      later(LIFT_MS, () => {
+        void playSuccessHaptic();
+        setShaken(true);
+      });
+      return () => clearAll(timers);
+    }
+
+    // Each swing ends a shake; the film thins as it lands.
+    const swings = SHAKES.map((shake) =>
+      withTiming(shake.rotate, {
+        duration: shake.ms,
+        easing: Easing.inOut(Easing.quad),
+      })
     );
-    film.value = withDelay(
-      420,
-      withTiming(0, { duration: 1300, easing: Easing.inOut(Easing.quad) })
+    rotate.set(
+      withDelay(
+        LIFT_MS,
+        withSequence(
+          ...swings,
+          withTiming(PRINT_TILT, {
+            duration: SETTLE_MS,
+            easing: Easing.out(Easing.cubic),
+          })
+        )
+      )
     );
-    const timer = setTimeout(onDone, DURATION);
-    return () => clearTimeout(timer);
-  }, [backdrop, film, onDone, settle]);
+    const clears = SHAKES.map((shake, index) =>
+      withTiming(FILM_START * (1 - (index + 1) / (SHAKES.length + 1)), {
+        duration: shake.ms,
+      })
+    );
+    film.set(
+      withSequence(
+        withTiming(FILM_START, { duration: LIFT_MS, easing: ease }),
+        ...clears,
+        withTiming(0, { duration: SETTLE_MS + 120 })
+      )
+    );
+
+    let at = LIFT_MS;
+    for (const shake of SHAKES) {
+      at += shake.ms;
+      later(at - 20, () => {
+        void playLightHaptic();
+      });
+    }
+    later(LIFT_MS + SHAKE_MS + SETTLE_MS * 0.6, () => {
+      void playSuccessHaptic();
+    });
+    later(DONE_MS, () => setShaken(true));
+    return () => clearAll(timers);
+  }, [backdrop, film, lift, reduceMotion, rotate]);
+
+  // Hands over once shaken and saved, whichever comes last.
+  useEffect(() => {
+    if (!(shaken && saved)) {
+      return;
+    }
+    const print = printRef.current;
+    if (!print) {
+      onDone(null);
+      return;
+    }
+    print.measureInWindow((x, y, frameWidth, frameHeight) =>
+      onDone(
+        frameWidth > 0 ? { height: frameHeight, width: frameWidth, x, y } : null
+      )
+    );
+  }, [onDone, saved, shaken]);
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.value }));
-  const printStyle = useAnimatedStyle(() => ({
-    opacity: settle.value,
-    transform: [
-      { translateY: (1 - settle.value) * 28 },
-      { rotate: `${1.5 + (1 - settle.value) * 4}deg` },
-    ],
-  }));
-  const filmStyle = useAnimatedStyle(() => ({ opacity: film.value * 0.94 }));
+  const printStyle = useAnimatedStyle(() => {
+    const away = 1 - lift.value;
+    // Swinging from its top edge, where fingers would hold it.
+    const sway = rotate.value - PRINT_TILT;
+    return {
+      opacity: from ? 1 : lift.value,
+      transform: [
+        { translateX: start.x * away + sway * 1.4 },
+        { translateY: start.y * away - 10 * Math.sin(lift.value * Math.PI) },
+        { scale: start.scale + (1 - start.scale) * lift.value },
+        { rotate: `${rotate.value}deg` },
+      ],
+    };
+  });
+  const filmStyle = useAnimatedStyle(() => ({ opacity: film.value }));
 
   return (
-    <Animated.View
+    <View
       accessibilityLabel="Quote saved"
       accessibilityLiveRegion="polite"
       accessible
-      style={[
-        styles.screen,
-        { backgroundColor: palette.background },
-        backdropStyle,
-      ]}
+      style={styles.screen}
     >
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: palette.background },
+          backdropStyle,
+        ]}
+      />
       <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
-      <Animated.View style={printStyle}>
-        <DraftPolaroid
-          align={align}
-          font={font}
-          imageUri={imageUri}
-          speaker={speaker}
-          text={text}
-          width={polaroidWidth}
-          withSpeaker
-        />
-        <Animated.View
-          style={[
-            styles.film,
-            {
-              borderRadius: metrics.photoRadius,
-              height: metrics.photoHeight,
-              left: metrics.padding,
-              top: metrics.padding,
-              width: metrics.photoWidth,
-            },
-            filmStyle,
-          ]}
-        />
-      </Animated.View>
-    </Animated.View>
+      {/* Untilted and unmoved, so it measures the print's resting frame. */}
+      <View collapsable={false} ref={printRef}>
+        <Animated.View style={printStyle}>
+          <DraftPolaroid
+            align={align}
+            font={font}
+            imageUri={imageUri}
+            speaker={speaker}
+            text={text}
+            width={polaroidWidth}
+          />
+          <Animated.View
+            style={[
+              styles.film,
+              {
+                borderRadius: metrics.photoRadius,
+                height: metrics.photoHeight,
+                left: metrics.padding,
+                top: metrics.padding,
+                width: metrics.photoWidth,
+              },
+              filmStyle,
+            ]}
+          />
+        </Animated.View>
+      </View>
+    </View>
   );
 }
 
